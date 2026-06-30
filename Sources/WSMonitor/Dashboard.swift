@@ -124,11 +124,16 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Top suspects (HEAVY score)").font(.subheadline.bold())
             ForEach(model.snapshot?.apps.prefix(10).map { $0 } ?? []) { a in
-                HStack {
-                    Text(a.name).frame(width: 180, alignment: .leading).lineLimit(1)
-                    Text("HEAVY \(Int(a.heavy))").frame(width: 100, alignment: .leading)
+                HStack(spacing: 10) {
+                    Text(a.name).frame(width: 160, alignment: .leading).lineLimit(1)
+                    Text("HEAVY \(Int(a.heavy))").frame(width: 90, alignment: .leading)
                         .foregroundStyle(.secondary).font(.callout)
-                    Text(String(format: "%dw  %.0f%%  %dk px", a.windows, a.cpu, a.area / 1000))
+                    Text("\(a.windows) Open Window\(a.windows == 1 ? "" : "s")")
+                        .frame(width: 130, alignment: .leading)
+                        .foregroundStyle(.secondary).font(.callout)
+                    Text(String(format: "%.0f%% CPU", a.cpu)).frame(width: 70, alignment: .leading)
+                        .foregroundStyle(.secondary).font(.callout)
+                    Text(String(format: "%.1fM px", Double(a.area) / 1_000_000))
                         .foregroundStyle(.secondary).font(.callout)
                     Spacer()
                     Button("Pause") { model.onPause(a.pid, a.name) }
