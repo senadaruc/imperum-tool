@@ -58,8 +58,12 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         sampleQueue.async { [weak self] in
             guard let self else { return }
             let snap = self.monitor.tick()
+            let displays = sampleDisplays()
             let enabled = PowerMetricsClient.shared.isEnabled
-            DispatchQueue.main.async { self.apply(snap: snap, enabled: enabled) }
+            DispatchQueue.main.async {
+                self.model.displays = displays
+                self.apply(snap: snap, enabled: enabled)
+            }
         }
     }
 
