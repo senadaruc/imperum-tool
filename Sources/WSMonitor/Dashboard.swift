@@ -28,7 +28,11 @@ final class DashboardModel: ObservableObject {
     @Published var culprit: Culprit?
     @Published var correlation: [CorrRow] = []
     @Published var spikes: [SpikeRow] = []
+    @Published var pmStatus: String = "Deep GPU capture: off"
+    @Published var pmEnabled: Bool = false
+    @Published var pmGroundTruth: String?       // e.g. "powermetrics: Chrome Helper (GPU) 28.9 GPU ms/s"
     var onPause: (Int32, String) -> Void = { _, _ in }
+    var onToggleHelper: () -> Void = {}
 }
 
 struct DashboardView: View {
@@ -47,6 +51,19 @@ struct DashboardView: View {
                 Divider(); spikesSection
             }
             Spacer(minLength: 0)
+            if let gt = model.pmGroundTruth {
+                Text(gt).font(.callout).foregroundStyle(.primary)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)))
+            }
+            HStack {
+                Text(model.pmStatus).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(model.pmEnabled ? "Disable deep GPU capture" : "Enable deep GPU capture (powermetrics)") {
+                    model.onToggleHelper()
+                }.controlSize(.small)
+            }
             Text("Click Pause to freeze a suspect ~4s and watch if WindowServer drops — that proves the culprit.")
                 .font(.caption).foregroundStyle(.secondary)
         }

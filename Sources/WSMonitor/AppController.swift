@@ -15,6 +15,7 @@ final class AppController: NSObject, NSWindowDelegate {
 
     func start() {
         model.onPause = { [weak self] pid, name in self?.pauseSuspect(pid: pid, name: name) }
+        model.onToggleHelper = { [weak self] in self?.toggleHelper() }
         statusItem.button?.action = #selector(toggleWindow)
         statusItem.button?.target = self
         makeWindow()
@@ -48,7 +49,10 @@ final class AppController: NSObject, NSWindowDelegate {
         let snap = monitor.tick()
         latest = snap
         correlator.record(snap)
-        _ = spikes.observe(snap)
+        if let spike = spikes.observe(snap), PowerMetricsClient.shared.isEnabled {
+            captureGroundTruth(for: spike)
+        }
+        refreshHelperStatus()
 
         // Menu-bar item: compact so it fits a crowded / notched menu bar.
         let b = statusItem.button
@@ -113,5 +117,55 @@ final class AppController: NSObject, NSWindowDelegate {
         _ = s.sample(pids: [ws])
         Thread.sleep(forTimeInterval: 1.5)
         return s.sample(pids: [ws])[ws]?.cpu ?? 0
+    }
+
+    // MARK: Privileged powermetrics helper
+
+    private func refreshHelperStatus() {
+        switch PowerMetricsClient.shared.state {
+        case .enabled:
+            model.pmEnabled = true
+            model.pmStatus = "Deep GPU capture: ON (powermetrics on each spike)"
+        case .requiresApproval:
+            model.pmEnabled = false
+            model.pmStatus = "Deep GPU capture: approve WSMonitor in System Settings → Login Items"
+        case .notRegistered:
+            model.pmEnabled = false
+            model.pmStatus = "Deep GPU capture: off"
+        case .error(let m):
+            model.pmEnabled = false
+            model.pmStatus = "Deep GPU capture error: \(m)"
+        }
+    }
+
+    private func toggleHelper() {
+        let c = PowerMetricsClient.shared
+        if c.isEnabled {
+            _ = c.uninstall()
+        } else {
+            switch c.install() {
+            case .success:
+                if case .requiresApproval = c.state { c.openLoginItemsSettings() }
+            case .failure(let err):
+                let a = NSAlert(); a.messageText = "Couldn't install helper"; a.informativeText = err.localizedDescription
+                a.runModal()
+            }
+        }
+        refreshHelperStatus()
+    }
+
+    private func captureGroundTruth(for spike: SpikeEvent) {
+        PowerMetricsClient.shared.capture { procs in
+            let top = procs.compactMap { p in p.gpuMsPerS.map { (p.name, $0) } }
+                           .filter { $0.1 > 0 }
+                           .max { $0.1 < $1.1 }
+            DispatchQueue.main.async { [weak self] in
+                if let t = top {
+                    self?.model.pmGroundTruth = String(format: "powermetrics ground truth: %@ — %.1f GPU ms/s (top GPU user at last spike)", t.0, t.1)
+                } else {
+                    self?.model.pmGroundTruth = "powermetrics: no per-process GPU reported at last spike"
+                }
+            }
+        }
     }
 }
