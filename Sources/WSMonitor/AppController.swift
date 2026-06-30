@@ -74,12 +74,18 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         if enabled { capturePower() }
 
         // Menu-bar item: compact so it fits a crowded / notched menu bar.
+        // Render as a TEMPLATE so macOS draws it with correct contrast (crisp
+        // white on a dark menu bar) — always clearly visible. Tint RED only
+        // during an actual spike, so colour means "problem now", not constant dim.
         let b = statusItem.button
-        b?.image = NSImage(systemSymbolName: "gauge.with.dots.needle.bottom.50percent",
-                           accessibilityDescription: "WindowServer load")
+        let img = NSImage(systemSymbolName: "gauge.with.dots.needle.bottom.50percent",
+                          accessibilityDescription: "WindowServer load")
+        let spiking = snap.wsCPU > 60 || (snap.gpu.utilization ?? 0) > 80
+        img?.isTemplate = !spiking          // template = auto-contrast; non-template lets red show
+        b?.image = img
         b?.imagePosition = .imageLeading
         b?.title = String(format: " %.0f", snap.wsCPU)
-        b?.contentTintColor = severityColor(snap)
+        b?.contentTintColor = spiking ? .systemRed : nil
 
         // Window model.
         model.snapshot = snap
