@@ -184,30 +184,49 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     // MARK: Quit-and-watch
 
     private func pauseSuspect(pid: Int32, name: String) {
+        guard !model.testing else { return }   // one test at a time
         let before = latest?.wsCPU ?? 0
-        pause(pid: pid)
+        NSLog("WSMonitor pause-test: \(name) pid \(pid), WS before \(before)%")
+        // Immediate, visible feedback so the click is never a no-op.
+        model.testing = true
+        model.testStatus = String(format: "Pausing %@ for ~2s, watching WindowServer (was %.0f%%)…", name, before)
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let after = self?.measureWSCPU() ?? before
+            guard let self else { return }
+            let froze = pause(pid: pid)
+            let after = self.measureWSCPU()
             resume(pid: pid)
             let r = watchDrop(before: before, after: after)
+            NSLog("WSMonitor pause-test result: \(name) froze=\(froze) WS \(before)→\(after) drop \(r.drop)")
             DispatchQueue.main.async {
-                let a = NSAlert()
-                a.messageText = "Quit-and-watch: \(name)"
-                a.informativeText = String(format:
-                    "WindowServer CPU %.0f%% → %.0f%% while %@ was paused (drop %.0f%%).\n\n%@",
-                    r.before, r.after, name, r.drop,
-                    r.drop > 15 ? "Large drop — this app is very likely your culprit."
-                               : "Small drop — probably not the main cause.")
-                a.runModal()
+                self.model.testing = false
+                if !froze {
+                    self.model.testStatus = "Couldn't pause \(name) — pid \(pid) may have quit. Try another suspect."
+                } else {
+                    let verdict = r.drop > 15 ? "big drop — \(name) is very likely your culprit."
+                                : r.drop > 6  ? "moderate drop — \(name) contributes."
+                                              : "no real drop — \(name) is probably not the cause."
+                    self.model.testStatus = String(format: "%@ frozen: WindowServer %.0f%% → %.0f%% (−%.0f). %@",
+                                                    name, r.before, r.after, max(0, r.drop), verdict)
+                }
+                self.clearTestStatusLater()
             }
         }
+    }
+
+    private var clearWork: DispatchWorkItem?
+    private func clearTestStatusLater() {
+        clearWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.model.testStatus = nil }
+        clearWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: w)
     }
 
     private func measureWSCPU() -> Double {
         guard let ws = wsPID else { return 0 }
         let s = CPUSampler()
-        _ = s.sample(pids: [ws])
-        Thread.sleep(forTimeInterval: 1.5)
+        _ = s.sample(pids: [ws])      // prime baseline
+        Thread.sleep(forTimeInterval: 2.0)
         return s.sample(pids: [ws])[ws]?.cpu ?? 0
     }
 

@@ -34,6 +34,8 @@ final class DashboardModel: ObservableObject {
     @Published var pmEnabled: Bool = false
     @Published var powerProcs: [PowerRow] = []  // live per-process Energy Impact (powermetrics)
     @Published var displays: [DisplayInfo] = []
+    @Published var testStatus: String?          // live pause-and-test feedback
+    @Published var testing = false              // a pause-test is in progress
     var onPause: (Int32, String) -> Void = { _, _ in }
     var onToggleHelper: () -> Void = {}
     var onOpenSettings: () -> Void = {}
@@ -47,6 +49,7 @@ struct DashboardView: View {
             // Pinned header — always visible while scrolling.
             VStack(alignment: .leading, spacing: 10) {
                 header
+                if let t = model.testStatus { testBanner(t) }
                 if let c = model.culprit { culpritCard(c) }
             }
             .padding(.horizontal, 16)
@@ -112,6 +115,22 @@ struct DashboardView: View {
             .buttonStyle(.borderless)
             .help("Settings — launch at login, refresh interval, thresholds")
         }
+    }
+
+    private func testBanner(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            if model.testing {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "checkmark.seal.fill").foregroundStyle(.blue)
+            }
+            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.blue.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.blue.opacity(0.4), lineWidth: 1))
     }
 
     private func culpritCard(_ c: Culprit) -> some View {
