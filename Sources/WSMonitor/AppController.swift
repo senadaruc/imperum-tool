@@ -1,19 +1,47 @@
 import AppKit
+import SwiftUI
 import WSCore
 
-final class AppController: NSObject {
+final class AppController: NSObject, NSWindowDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let monitor = Monitor()
     private let spikes = SpikeLog()
     private let correlator = Correlator()
+    private let model = DashboardModel()
+    private var window: NSWindow?
     private var timer: Timer?
     private var latest: Snapshot?
     private let wsPID = windowServerPID()
 
     func start() {
-        rebuildMenu(snapshot: nil)
+        model.onPause = { [weak self] pid, name in self?.pauseSuspect(pid: pid, name: name) }
+        statusItem.button?.action = #selector(toggleWindow)
+        statusItem.button?.target = self
+        makeWindow()
         tick()
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.tick() }
+        showWindow()   // show on launch so there is always a visible UI
+    }
+
+    private func makeWindow() {
+        let host = NSHostingController(rootView: DashboardView(model: model))
+        let win = NSWindow(contentViewController: host)
+        win.title = "WSMonitor — WindowServer load"
+        win.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        win.setContentSize(NSSize(width: 600, height: 560))
+        win.center()
+        win.isReleasedWhenClosed = false
+        win.delegate = self
+        window = win
+    }
+
+    @objc private func toggleWindow() {
+        if let w = window, w.isVisible { w.orderOut(nil) } else { showWindow() }
+    }
+
+    private func showWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
     }
 
     private func tick() {
@@ -21,10 +49,24 @@ final class AppController: NSObject {
         latest = snap
         correlator.record(snap)
         _ = spikes.observe(snap)
+
+        // Menu-bar item: compact so it fits a crowded / notched menu bar.
         let b = statusItem.button
-        b?.title = formatTitle(wsCPU: snap.wsCPU, gpu: snap.gpu.utilization, top: snap.apps.first?.name)
+        b?.image = NSImage(systemSymbolName: "gauge.with.dots.needle.bottom.50percent",
+                           accessibilityDescription: "WindowServer load")
+        b?.imagePosition = .imageLeading
+        b?.title = String(format: " %.0f", snap.wsCPU)
         b?.contentTintColor = severityColor(snap)
-        rebuildMenu(snapshot: snap)
+
+        // Window model.
+        model.snapshot = snap
+        model.correlation = correlator.ranking().prefix(3).filter { $0.score > 0.3 }
+            .map { CorrRow(id: $0.name, score: $0.score) }
+        model.spikes = spikes.events.suffix(6).reversed().enumerated().map { idx, e in
+            SpikeRow(id: idx,
+                     when: DateFormatter.localizedString(from: e.ts, dateStyle: .none, timeStyle: .medium),
+                     wsCPU: e.wsCPU, gpu: e.gpuUtil ?? 0, top: e.top.first?.name ?? "?")
+        }
     }
 
     private func severityColor(_ s: Snapshot) -> NSColor {
@@ -34,60 +76,9 @@ final class AppController: NSObject {
         return .systemGreen
     }
 
-    // MARK: Menu
-
-    private func rebuildMenu(snapshot: Snapshot?) {
-        let menu = NSMenu()
-        if let s = snapshot {
-            menu.addItem(disabled(String(format: "WindowServer   CPU %.0f%%   RAM %.0f MB   GPU mem %.0f MB",
-                                         s.wsCPU, s.wsRSS, s.gpu.memInUseMB ?? 0)))
-            menu.addItem(.separator())
-            menu.addItem(disabled("Top suspects (HEAVY)"))
-            for a in s.apps.prefix(8) {
-                let title = String(format: "%@   ·   HEAVY %d   ·   %dw  %.0f%% cpu  %dk px",
-                                   a.name, Int(a.heavy), a.windows, a.cpu, a.area / 1000)
-                let item = NSMenuItem(title: title, action: #selector(pauseSuspect(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = NSNumber(value: a.pid)
-                menu.addItem(item)
-            }
-            let corr = correlator.ranking().prefix(3).filter { $0.score > 0.3 }
-            if !corr.isEmpty {
-                menu.addItem(.separator())
-                menu.addItem(disabled("Most correlated with spikes"))
-                for c in corr { menu.addItem(disabled(String(format: "%@   ·   r=%.2f", c.name, c.score))) }
-            }
-            if !spikes.events.isEmpty {
-                menu.addItem(.separator())
-                menu.addItem(disabled("Recent spikes"))
-                for e in spikes.events.suffix(5).reversed() {
-                    let when = DateFormatter.localizedString(from: e.ts, dateStyle: .none, timeStyle: .medium)
-                    menu.addItem(disabled(String(format: "%@   WS %.0f%% · GPU %.0f%% — %@",
-                                                 when, e.wsCPU, e.gpuUtil ?? 0, e.top.first?.name ?? "?")))
-                }
-            }
-            menu.addItem(.separator())
-            menu.addItem(disabled("Click a suspect to PAUSE it ~4s (proves cause), then it resumes"))
-        } else {
-            menu.addItem(disabled("Sampling…"))
-        }
-        menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit WSMonitor", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        statusItem.menu = menu
-    }
-
-    private func disabled(_ s: String) -> NSMenuItem {
-        let i = NSMenuItem(title: s, action: nil, keyEquivalent: "")
-        i.isEnabled = false
-        return i
-    }
-
     // MARK: Quit-and-watch
 
-    @objc private func pauseSuspect(_ sender: NSMenuItem) {
-        guard let num = sender.representedObject as? NSNumber else { return }
-        let pid = num.int32Value
-        let name = sender.title.components(separatedBy: "   ·").first ?? "process"
+    private func pauseSuspect(pid: Int32, name: String) {
         let before = latest?.wsCPU ?? 0
         pause(pid: pid)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -107,7 +98,6 @@ final class AppController: NSObject {
         }
     }
 
-    /// Dedicated two-read WindowServer CPU measurement (doesn't disturb the periodic sampler).
     private func measureWSCPU() -> Double {
         guard let ws = wsPID else { return 0 }
         let s = CPUSampler()
