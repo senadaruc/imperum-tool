@@ -9,9 +9,14 @@ final class AppConfig: ObservableObject {
     @Published var cpuThreshold: Double    { didSet { save(); onChange?() } }
     @Published var gpuThreshold: Double     { didSet { save(); onChange?() } }
     @Published var launchAtLogin: Bool      { didSet { applyLogin() } }
+    /// Non-nil when the login item exists but macOS needs the user to approve it
+    /// in System Settings → Login Items (SMAppService `.requiresApproval`).
+    @Published var loginNeedsApproval = false
 
     /// Called after a persisted value changes (not for launchAtLogin, which is its own side-effect).
     var onChange: (() -> Void)?
+    /// Guards against the programmatic re-sync of `launchAtLogin` re-triggering applyLogin().
+    private var syncing = false
 
     private static let kInterval = "intervalSeconds"
     private static let kCPU = "cpuThreshold"
@@ -22,7 +27,9 @@ final class AppConfig: ObservableObject {
         intervalSeconds = (d.object(forKey: Self.kInterval) as? Double).map { max(2, min(30, $0)) } ?? 5
         cpuThreshold    = (d.object(forKey: Self.kCPU) as? Double).map { max(20, min(100, $0)) } ?? 60
         gpuThreshold    = (d.object(forKey: Self.kGPU) as? Double).map { max(20, min(100, $0)) } ?? 80
-        launchAtLogin   = SMAppService.mainApp.status == .enabled
+        let status = SMAppService.mainApp.status
+        launchAtLogin = (status == .enabled || status == .requiresApproval)
+        loginNeedsApproval = (status == .requiresApproval)
         // didSet does not fire during init — no accidental login-item churn here.
     }
 
@@ -37,21 +44,44 @@ final class AppConfig: ObservableObject {
         d.set(gpuThreshold, forKey: Self.kGPU)
     }
 
+    /// Re-read the OS truth and reconcile the toggle (call when Settings appears).
+    func refreshLoginStatus() {
+        let status = SMAppService.mainApp.status
+        let on = (status == .enabled || status == .requiresApproval)
+        loginNeedsApproval = (status == .requiresApproval)
+        if launchAtLogin != on { setLaunchSilently(on) }
+    }
+
+    private func setLaunchSilently(_ value: Bool) {
+        syncing = true
+        launchAtLogin = value
+        syncing = false
+    }
+
     private func applyLogin() {
+        guard !syncing else { return }   // ignore programmatic re-sync
+        let svc = SMAppService.mainApp
         do {
             if launchAtLogin {
-                if SMAppService.mainApp.status != .enabled { try SMAppService.mainApp.register() }
+                if svc.status != .enabled { try svc.register() }
             } else {
-                if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() }
+                if svc.status != .notRegistered { try svc.unregister() }
             }
         } catch {
-            // Registration can fail (e.g. app not in /Applications). Revert the toggle to reality.
-            let actual = SMAppService.mainApp.status == .enabled
-            if launchAtLogin != actual {
-                DispatchQueue.main.async { self.launchAtLogin = actual }
-            }
             NSLog("WSMonitor login-item change failed: \(error.localizedDescription)")
         }
+        // `.requiresApproval` is NOT a failure — the item is registered, macOS just
+        // wants the user to approve it. Keep the toggle on and surface the hint.
+        let status = svc.status
+        let on = (status == .enabled || status == .requiresApproval)
+        loginNeedsApproval = (status == .requiresApproval)
+        if launchAtLogin != on {
+            DispatchQueue.main.async { self.setLaunchSilently(on) }
+        }
+    }
+
+    func openLoginItemsSettings() {
+        SMAppService.openSystemSettingsLoginItems()
     }
 }
 
@@ -69,8 +99,20 @@ struct SettingsView: View {
         Form {
             Section("General") {
                 Toggle("Launch at login", isOn: $config.launchAtLogin)
-                Text("Start WSMonitor automatically when you log in.")
-                    .font(.caption).foregroundStyle(.secondary)
+                if config.loginNeedsApproval {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("macOS needs you to approve this. Enable “WSMonitor” under Allow in the Background / Open at Login.")
+                                .font(.caption)
+                            Button("Open Login Items settings…") { config.openLoginItemsSettings() }
+                                .controlSize(.small)
+                        }
+                    }
+                } else {
+                    Text("Start WSMonitor automatically when you log in.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             Section("Sampling") {
@@ -112,6 +154,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 540)
+        .frame(width: 440, height: 560)
+        .onAppear { config.refreshLoginStatus() }
     }
 }
