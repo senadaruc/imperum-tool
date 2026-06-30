@@ -49,10 +49,9 @@ final class AppController: NSObject, NSWindowDelegate {
         let snap = monitor.tick()
         latest = snap
         correlator.record(snap)
-        if let spike = spikes.observe(snap), PowerMetricsClient.shared.isEnabled {
-            captureGroundTruth(for: spike)
-        }
+        _ = spikes.observe(snap)
         refreshHelperStatus()
+        if model.pmEnabled { captureGPU() }
 
         // Menu-bar item: compact so it fits a crowded / notched menu bar.
         let b = statusItem.button
@@ -125,11 +124,8 @@ final class AppController: NSObject, NSWindowDelegate {
         switch PowerMetricsClient.shared.state {
         case .enabled:
             model.pmEnabled = true
-            model.pmStatus = "Deep GPU capture: ON (powermetrics on each spike)"
-        case .requiresApproval:
-            model.pmEnabled = false
-            model.pmStatus = "Deep GPU capture: approve WSMonitor in System Settings → Login Items"
-        case .notRegistered:
+            model.pmStatus = "Deep GPU capture: ON (live per-process GPU via powermetrics)"
+        case .notEnabled:
             model.pmEnabled = false
             model.pmStatus = "Deep GPU capture: off"
         case .error(let m):
@@ -140,32 +136,23 @@ final class AppController: NSObject, NSWindowDelegate {
 
     private func toggleHelper() {
         let c = PowerMetricsClient.shared
-        if c.isEnabled {
-            _ = c.uninstall()
-        } else {
-            switch c.install() {
-            case .success:
-                if case .requiresApproval = c.state { c.openLoginItemsSettings() }
-            case .failure(let err):
-                let a = NSAlert(); a.messageText = "Couldn't install helper"; a.informativeText = err.localizedDescription
-                a.runModal()
-            }
+        let result = c.isEnabled ? c.uninstall() : c.install()
+        if case .failure(let err) = result {
+            let a = NSAlert()
+            a.messageText = "Couldn't change deep GPU capture"
+            a.informativeText = err.localizedDescription
+            a.runModal()
         }
         refreshHelperStatus()
     }
 
-    private func captureGroundTruth(for spike: SpikeEvent) {
-        PowerMetricsClient.shared.capture { procs in
-            let top = procs.compactMap { p in p.gpuMsPerS.map { (p.name, $0) } }
-                           .filter { $0.1 > 0 }
-                           .max { $0.1 < $1.1 }
-            DispatchQueue.main.async { [weak self] in
-                if let t = top {
-                    self?.model.pmGroundTruth = String(format: "powermetrics ground truth: %@ — %.1f GPU ms/s (top GPU user at last spike)", t.0, t.1)
-                } else {
-                    self?.model.pmGroundTruth = "powermetrics: no per-process GPU reported at last spike"
-                }
-            }
+    private func captureGPU() {
+        PowerMetricsClient.shared.capture { [weak self] procs in
+            let rows = procs.compactMap { p -> GPURow? in
+                guard let g = p.gpuMsPerS, g > 0 else { return nil }
+                return GPURow(id: p.pid, name: p.name, gpu: g)
+            }.sorted { $0.gpu > $1.gpu }.prefix(8)
+            self?.model.gpuProcs = Array(rows)
         }
     }
 }

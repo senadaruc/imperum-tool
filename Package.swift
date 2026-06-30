@@ -10,10 +10,6 @@ let package = Package(
             name: "WSMonitor",
             dependencies: ["WSCore"]
         ),
-        .executableTarget(
-            name: "WSHelper",
-            dependencies: ["WSCore"]
-        ),
         .testTarget(name: "WSCoreTests", dependencies: ["WSCore"]),
     ]
 )

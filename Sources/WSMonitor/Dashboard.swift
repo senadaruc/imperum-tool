@@ -5,6 +5,7 @@ extension AppSample: Identifiable { public var id: Int32 { pid } }
 
 struct CorrRow: Identifiable { let id: String; let score: Double }
 struct SpikeRow: Identifiable { let id: Int; let when: String; let wsCPU: Double; let gpu: Double; let top: String }
+struct GPURow: Identifiable { let id: Int32; let name: String; let gpu: Double }   // gpu = ms/s
 
 /// The app most statistically tied to WindowServer spikes, once enough data exists.
 struct Culprit {
@@ -30,7 +31,7 @@ final class DashboardModel: ObservableObject {
     @Published var spikes: [SpikeRow] = []
     @Published var pmStatus: String = "Deep GPU capture: off"
     @Published var pmEnabled: Bool = false
-    @Published var pmGroundTruth: String?       // e.g. "powermetrics: Chrome Helper (GPU) 28.9 GPU ms/s"
+    @Published var gpuProcs: [GPURow] = []      // live per-process GPU (powermetrics)
     var onPause: (Int32, String) -> Void = { _, _ in }
     var onToggleHelper: () -> Void = {}
 }
@@ -47,16 +48,13 @@ struct DashboardView: View {
             if !model.correlation.isEmpty {
                 Divider(); correlationSection
             }
+            if model.pmEnabled {
+                Divider(); gpuSection
+            }
             if !model.spikes.isEmpty {
                 Divider(); spikesSection
             }
             Spacer(minLength: 0)
-            if let gt = model.pmGroundTruth {
-                Text(gt).font(.callout).foregroundStyle(.primary)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12)))
-            }
             HStack {
                 Text(model.pmStatus).font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -148,6 +146,23 @@ struct DashboardView: View {
             Text("Most correlated with spikes").font(.subheadline.bold())
             ForEach(model.correlation) { c in
                 Text(String(format: "%@   ·   r = %.2f", c.id, c.score)).foregroundStyle(.secondary).font(.callout)
+            }
+        }
+    }
+
+    private var gpuSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("GPU usage by process (powermetrics — authoritative)").font(.subheadline.bold())
+            if model.gpuProcs.isEmpty {
+                Text("sampling…").font(.callout).foregroundStyle(.secondary)
+            } else {
+                ForEach(model.gpuProcs) { g in
+                    HStack {
+                        Text(g.name).frame(width: 320, alignment: .leading).lineLimit(1)
+                        Text(String(format: "%.1f GPU ms/s", g.gpu)).foregroundStyle(.secondary)
+                        Spacer()
+                    }.font(.callout)
+                }
             }
         }
     }
