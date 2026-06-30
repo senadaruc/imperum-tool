@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import WSCore
 
-final class AppController: NSObject, NSWindowDelegate {
+final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let monitor = Monitor()
     private let spikes = SpikeLog()
@@ -38,6 +38,12 @@ final class AppController: NSObject, NSWindowDelegate {
 
     @objc private func toggleWindow() {
         if let w = window, w.isVisible { w.orderOut(nil) } else { showWindow() }
+    }
+
+    // Clicking the Dock icon (with no open window) reopens the dashboard.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { showWindow() }
+        return true
     }
 
     private func showWindow() {
