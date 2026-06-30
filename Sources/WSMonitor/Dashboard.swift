@@ -36,6 +36,7 @@ final class DashboardModel: ObservableObject {
     @Published var displays: [DisplayInfo] = []
     var onPause: (Int32, String) -> Void = { _, _ in }
     var onToggleHelper: () -> Void = {}
+    var onOpenSettings: () -> Void = {}
 }
 
 struct DashboardView: View {
@@ -105,6 +106,11 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            Button { model.onOpenSettings() } label: {
+                Image(systemName: "gearshape").font(.system(size: 16))
+            }
+            .buttonStyle(.borderless)
+            .help("Settings — launch at login, refresh interval, thresholds")
         }
     }
 

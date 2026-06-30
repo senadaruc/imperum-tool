@@ -8,7 +8,9 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private let spikes = SpikeLog()
     private let correlator = Correlator()
     private let model = DashboardModel()
+    private let config = AppConfig()
     private var window: NSWindow?
+    private var settingsWindow: NSWindow?
     private var timer: Timer?
     private var latest: Snapshot?
     private let wsPID = windowServerPID()
@@ -17,12 +19,73 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     func start() {
         model.onPause = { [weak self] pid, name in self?.pauseSuspect(pid: pid, name: name) }
         model.onToggleHelper = { [weak self] in self?.toggleHelper() }
+        model.onOpenSettings = { [weak self] in self?.showSettings() }
+        config.onChange = { [weak self] in self?.applyConfig() }
+        spikes.config = config.spikeConfig
+        buildMainMenu()
         statusItem.button?.action = #selector(toggleWindow)
         statusItem.button?.target = self
         makeWindow()
         tick()
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.tick() }
+        startTimer()
         showWindow()   // show on launch so there is always a visible UI
+    }
+
+    private func startTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: config.intervalSeconds, repeats: true) { [weak self] _ in self?.tick() }
+    }
+
+    /// Re-apply live settings (called when the user changes config in Settings).
+    private func applyConfig() {
+        spikes.config = config.spikeConfig
+        startTimer()
+    }
+
+    // MARK: App menu + Settings
+
+    private func buildMainMenu() {
+        let mainMenu = NSMenu()
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        appItem.submenu = appMenu
+        appMenu.addItem(withTitle: "About WSMonitor", action: #selector(showAbout), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        let settings = appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        appMenu.addItem(withTitle: "Show Window", action: #selector(showWindowMenu), keyEquivalent: "0")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit WSMonitor", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        for item in appMenu.items where item.target == nil { item.target = self }
+        NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func showWindowMenu() { showWindow() }
+
+    @objc private func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "WSMonitor",
+            .applicationVersion: appVersionString(),
+            .credits: NSAttributedString(
+                string: "Finds which app drives WindowServer CPU / RAM / GPU spikes.\n\nSudoless detection · live correlation · pause-and-test causation · optional powermetrics Energy Impact.\n\nDeveloper ID: Imperum B.V.",
+                attributes: [.font: NSFont.systemFont(ofSize: 11)])
+        ])
+    }
+
+    @objc private func showSettings() {
+        if settingsWindow == nil {
+            let host = NSHostingController(rootView: SettingsView(config: config))
+            let win = NSWindow(contentViewController: host)
+            win.title = "WSMonitor Settings"
+            win.styleMask = [.titled, .closable]
+            win.isReleasedWhenClosed = false
+            win.center()
+            settingsWindow = win
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     private func makeWindow() {
@@ -84,7 +147,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         let b = statusItem.button
         let img = NSImage(systemSymbolName: "gauge.with.dots.needle.bottom.50percent",
                           accessibilityDescription: "WindowServer load")
-        let spiking = snap.wsCPU > 60 || (snap.gpu.utilization ?? 0) > 80
+        let spiking = snap.wsCPU > config.cpuThreshold || (snap.gpu.utilization ?? 0) > config.gpuThreshold
         img?.isTemplate = !spiking          // template = auto-contrast; non-template lets red show
         b?.image = img
         b?.imagePosition = .imageLeading

@@ -21,7 +21,7 @@ public struct SpikeEvent {
 
 public final class SpikeLog {
     public private(set) var events: [SpikeEvent] = []
-    private let config: SpikeConfig
+    public var config: SpikeConfig          // runtime-adjustable (Settings)
     private let maxEvents = 50
     private var lastTopName: String?
 
