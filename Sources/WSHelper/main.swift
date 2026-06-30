@@ -24,6 +24,17 @@ final class Helper: NSObject, HelperProtocol, NSXPCListenerDelegate {
     }
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection conn: NSXPCConnection) -> Bool {
+        // SECURITY: this helper runs as root. Only accept connections from a
+        // process signed with OUR Developer ID identity + bundle id. Without
+        // this, any local process could drive the root helper. setCodeSigningRequirement
+        // (macOS 13+) validates the peer's audit token against the requirement
+        // and rejects mismatches automatically.
+        let requirement =
+            "anchor apple generic and identifier \"io.imperum.wsmonitor\" " +
+            "and certificate leaf[subject.OU] = \"9TZGSR8224\""
+        // Enforced by the XPC runtime: peers not matching this requirement have
+        // their messages rejected (the connection is treated as invalid).
+        conn.setCodeSigningRequirement(requirement)
         conn.exportedInterface = NSXPCInterface(with: HelperProtocol.self)
         conn.exportedObject = self
         conn.resume()
