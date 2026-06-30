@@ -41,11 +41,19 @@ struct DashboardView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Pinned header — always visible while scrolling.
+            VStack(alignment: .leading, spacing: 10) {
+                header
+                if let c = model.culprit { culpritCard(c) }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.bar)
+            Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    header
-                    if let c = model.culprit { culpritCard(c) }
-                    Divider()
                     suspects
                     if !model.correlation.isEmpty {
                         Divider(); correlationSection
