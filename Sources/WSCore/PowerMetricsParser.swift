@@ -59,7 +59,11 @@ public func parsePowerMetrics(_ text: String) -> [PMProcess] {
     for raw in lines[(hIdx + 1)...] {
         let line = raw
         let t = line.trimmingCharacters(in: .whitespaces)
-        if t.isEmpty || t.hasPrefix("*") || t.hasPrefix("-") || t.hasPrefix("ALL_TASKS") { continue }
+        // End of the running-tasks table: the next section header ("**** GPU
+        // usage ****") or the ALL_TASKS totals row. Stop — everything after is
+        // not per-process rows.
+        if t.hasPrefix("*") || t.hasPrefix("ALL_TASKS") { break }
+        if t.isEmpty || t.hasPrefix("-") { continue }
         let toks = tokens(line)
         guard let idTok = toks.first(where: { Int32($0.text) != nil }) else { continue }
         let pid = Int32(idTok.text) ?? -1

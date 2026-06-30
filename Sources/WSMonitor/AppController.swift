@@ -51,7 +51,7 @@ final class AppController: NSObject, NSWindowDelegate {
         correlator.record(snap)
         _ = spikes.observe(snap)
         refreshHelperStatus()
-        if model.pmEnabled { captureGPU() }
+        if model.pmEnabled { capturePower() }
 
         // Menu-bar item: compact so it fits a crowded / notched menu bar.
         let b = statusItem.button
@@ -146,13 +146,13 @@ final class AppController: NSObject, NSWindowDelegate {
         refreshHelperStatus()
     }
 
-    private func captureGPU() {
+    private func capturePower() {
         PowerMetricsClient.shared.capture { [weak self] procs in
-            let rows = procs.compactMap { p -> GPURow? in
-                guard let g = p.gpuMsPerS, g > 0 else { return nil }
-                return GPURow(id: p.pid, name: p.name, gpu: g)
-            }.sorted { $0.gpu > $1.gpu }.prefix(8)
-            self?.model.gpuProcs = Array(rows)
+            let rows = procs.compactMap { p -> PowerRow? in
+                guard let e = p.energyImpact, e > 0 else { return nil }
+                return PowerRow(id: p.pid, name: p.name, energy: e)
+            }.sorted { $0.energy > $1.energy }.prefix(8)
+            self?.model.powerProcs = Array(rows)
         }
     }
 }

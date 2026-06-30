@@ -5,7 +5,7 @@ extension AppSample: Identifiable { public var id: Int32 { pid } }
 
 struct CorrRow: Identifiable { let id: String; let score: Double }
 struct SpikeRow: Identifiable { let id: Int; let when: String; let wsCPU: Double; let gpu: Double; let top: String }
-struct GPURow: Identifiable { let id: Int32; let name: String; let gpu: Double }   // gpu = ms/s
+struct PowerRow: Identifiable { let id: Int32; let name: String; let energy: Double }  // Energy Impact
 
 /// The app most statistically tied to WindowServer spikes, once enough data exists.
 struct Culprit {
@@ -31,7 +31,7 @@ final class DashboardModel: ObservableObject {
     @Published var spikes: [SpikeRow] = []
     @Published var pmStatus: String = "Deep GPU capture: off"
     @Published var pmEnabled: Bool = false
-    @Published var gpuProcs: [GPURow] = []      // live per-process GPU (powermetrics)
+    @Published var powerProcs: [PowerRow] = []  // live per-process Energy Impact (powermetrics)
     var onPause: (Int32, String) -> Void = { _, _ in }
     var onToggleHelper: () -> Void = {}
 }
@@ -152,14 +152,16 @@ struct DashboardView: View {
 
     private var gpuSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("GPU usage by process (powermetrics — authoritative)").font(.subheadline.bold())
-            if model.gpuProcs.isEmpty {
+            Text("Power cost by process (powermetrics — Energy Impact)").font(.subheadline.bold())
+            Text("Per-process GPU ms/s reads 0 on Apple Silicon, so this ranks Energy Impact — Apple's combined CPU+GPU+ANE power cost, the best authoritative per-process signal.")
+                .font(.caption2).foregroundStyle(.secondary)
+            if model.powerProcs.isEmpty {
                 Text("sampling…").font(.callout).foregroundStyle(.secondary)
             } else {
-                ForEach(model.gpuProcs) { g in
+                ForEach(model.powerProcs) { g in
                     HStack {
                         Text(g.name).frame(width: 320, alignment: .leading).lineLimit(1)
-                        Text(String(format: "%.1f GPU ms/s", g.gpu)).foregroundStyle(.secondary)
+                        Text(String(format: "%.0f energy", g.energy)).foregroundStyle(.secondary)
                         Spacer()
                     }.font(.callout)
                 }

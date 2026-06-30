@@ -2,43 +2,49 @@ import XCTest
 @testable import WSCore
 
 final class PowerMetricsParserTests: XCTestCase {
-    // Representative powermetrics tasks table (column-aligned headers).
+    // Real M3 Max / macOS 26 format: multi-value Deadlines/Wakeups columns,
+    // per-process GPU ms/s is 0 (Apple Silicon), Energy Impact carries the signal,
+    // and a trailing "**** GPU usage ****" footer that must NOT be parsed as rows.
     let fixture = """
     *** Running tasks ***
 
-    Name                          ID     CPU ms/s  User%   GPU ms/s  Energy Impact
-    WindowServer                  431    45.32     30.10   12.45     88.20
-    Google Chrome Helper (GPU)    74812  30.10     20.00   28.91     65.40
-    kernel_task                   0      10.00     0.00    0.00      2.10
+    Name                               ID     CPU ms/s  User%  Deadlines (<2 ms, 2-5 ms)  Wakeups (Intr, Pkg idle)  GPU ms/s  Energy Impact
+    Firefox GPU Helper                 67117  561.77    95.41  0.00    0.00               8.61    0.00              0.00      2053.47
+    WindowServer                       431    400.63    72.68  215.33  0.00               641.70  8.61              0.00      1139.30
+    powermetrics                       3767   184.37    23.60  0.00    0.00               4.31    0.00              0.00      254.11
+    ALL_TASKS                          -2     1146.77   77.23  215.33  0.00               654.62  17.22             0.00      3446.88
+
+    **** GPU usage ****
+
+    GPU HW active frequency: 338 MHz
+    GPU HW active residency:  27.95% (338 MHz:  28% 618 MHz:   0%)
+    GPU Power: 1043 mW
     """
 
-    func testParsesRows() {
+    func testStopsAtTableEnd() {
         let procs = parsePowerMetrics(fixture)
+        // 3 real rows only — ALL_TASKS and the GPU-usage footer excluded.
         XCTAssertEqual(procs.count, 3)
+        XCTAssertFalse(procs.contains { $0.name.contains("GPU HW") || $0.name.contains("GPU Power") })
+        XCTAssertFalse(procs.contains { $0.pid == -2 })   // ALL_TASKS excluded
+    }
+
+    func testNameWithSpaces() {
+        let procs = parsePowerMetrics(fixture)
+        XCTAssertTrue(procs.contains { $0.name == "Firefox GPU Helper" && $0.pid == 67117 })
         XCTAssertTrue(procs.contains { $0.name == "WindowServer" && $0.pid == 431 })
     }
 
-    func testNameWithSpacesAndParens() {
+    func testEnergyImpactExtracted() throws {
         let procs = parsePowerMetrics(fixture)
-        let chrome = procs.first { $0.pid == 74812 }
-        XCTAssertEqual(chrome?.name, "Google Chrome Helper (GPU)")
+        XCTAssertEqual(try XCTUnwrap(procs.first { $0.pid == 67117 }?.energyImpact), 2053.47, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(procs.first { $0.pid == 431 }?.energyImpact), 1139.30, accuracy: 0.5)
     }
 
-    func testGpuColumnExtracted() throws {
+    func testTopByEnergy() {
         let procs = parsePowerMetrics(fixture)
-        XCTAssertEqual(try XCTUnwrap(procs.first { $0.pid == 74812 }?.gpuMsPerS), 28.91, accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(procs.first { $0.pid == 431 }?.gpuMsPerS), 12.45, accuracy: 0.001)
-    }
-
-    func testEnergyColumnExtracted() throws {
-        let procs = parsePowerMetrics(fixture)
-        XCTAssertEqual(try XCTUnwrap(procs.first { $0.pid == 431 }?.energyImpact), 88.20, accuracy: 0.001)
-    }
-
-    func testTopGpuRanking() {
-        let procs = parsePowerMetrics(fixture)
-        let top = procs.compactMap { p in p.gpuMsPerS.map { (p.name, $0) } }.max { $0.1 < $1.1 }
-        XCTAssertEqual(top?.0, "Google Chrome Helper (GPU)")
+        let top = procs.max { ($0.energyImpact ?? 0) < ($1.energyImpact ?? 0) }
+        XCTAssertEqual(top?.name, "Firefox GPU Helper")
     }
 
     func testEmptyOnGarbage() {
