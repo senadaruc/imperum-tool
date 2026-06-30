@@ -6,8 +6,26 @@ extension AppSample: Identifiable { public var id: Int32 { pid } }
 struct CorrRow: Identifiable { let id: String; let score: Double }
 struct SpikeRow: Identifiable { let id: Int; let when: String; let wsCPU: Double; let gpu: Double; let top: String }
 
+/// The app most statistically tied to WindowServer spikes, once enough data exists.
+struct Culprit {
+    let name: String
+    let pid: Int32?      // nil if it currently owns no window (can't Pause-test)
+    let score: Double
+    var confidence: String {
+        if score >= 0.8 { return "Strong" }
+        if score >= 0.6 { return "Likely" }
+        return "Possible"
+    }
+    var color: Color {
+        if score >= 0.8 { return .red }
+        if score >= 0.6 { return .orange }
+        return .yellow
+    }
+}
+
 final class DashboardModel: ObservableObject {
     @Published var snapshot: Snapshot?
+    @Published var culprit: Culprit?
     @Published var correlation: [CorrRow] = []
     @Published var spikes: [SpikeRow] = []
     var onPause: (Int32, String) -> Void = { _, _ in }
@@ -19,6 +37,7 @@ struct DashboardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
+            if let c = model.culprit { culpritCard(c) }
             Divider()
             suspects
             if !model.correlation.isEmpty {
@@ -53,6 +72,35 @@ struct DashboardView: View {
             }
             Spacer()
         }
+    }
+
+    private func culpritCard(_ c: Culprit) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 26)).foregroundStyle(c.color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("LIKELY CULPRIT · \(c.confidence.uppercased()) CONFIDENCE")
+                    .font(.caption.bold()).foregroundStyle(c.color)
+                Text(c.name).font(.title2.bold())
+                Text(String(format: "correlation with WindowServer spikes:  r = %.2f", c.score))
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let pid = c.pid {
+                Button { model.onPause(pid, c.name) } label: {
+                    Text("Pause & test").bold()
+                }
+                .controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                .tint(c.color)
+            } else {
+                Text("no window\nto test").font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(c.color.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(c.color.opacity(0.5), lineWidth: 1))
     }
 
     private var suspects: some View {

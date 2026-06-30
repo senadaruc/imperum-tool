@@ -20,6 +20,9 @@ public final class Correlator {
     private var appSeries: [String: [Double]] = [:]
     public init(window: Int = 60) { self.window = window }
 
+    /// Number of samples recorded (capped at `window`). Use to gate trust in correlation.
+    public var count: Int { wsSeries.count }
+
     public func record(_ snap: Snapshot) {
         // WS signal = max(wsCPU, gpuUtil) so either kind of spike drives correlation.
         let wsSignal = max(snap.wsCPU, snap.gpu.utilization ?? 0)

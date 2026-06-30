@@ -60,8 +60,17 @@ final class AppController: NSObject, NSWindowDelegate {
 
         // Window model.
         model.snapshot = snap
-        model.correlation = correlator.ranking().prefix(3).filter { $0.score > 0.3 }
+        let ranked = correlator.ranking()
+        model.correlation = ranked.prefix(3).filter { $0.score > 0.3 }
             .map { CorrRow(id: $0.name, score: $0.score) }
+        // Promote the top correlated app to a prominent culprit once we have
+        // enough samples (~30s) and a meaningful link.
+        if correlator.count >= 6, let top = ranked.first, top.score > 0.5 {
+            let pid = snap.apps.first { $0.name == top.name }?.pid
+            model.culprit = Culprit(name: top.name, pid: pid, score: top.score)
+        } else {
+            model.culprit = nil
+        }
         model.spikes = spikes.events.suffix(6).reversed().enumerated().map { idx, e in
             SpikeRow(id: idx,
                      when: DateFormatter.localizedString(from: e.ts, dateStyle: .none, timeStyle: .medium),
