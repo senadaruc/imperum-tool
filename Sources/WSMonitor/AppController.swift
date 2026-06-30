@@ -12,6 +12,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private var timer: Timer?
     private var latest: Snapshot?
     private let wsPID = windowServerPID()
+    private let sampleQueue = DispatchQueue(label: "io.imperum.wsmonitor.sample")
 
     func start() {
         model.onPause = { [weak self] pid, name in self?.pauseSuspect(pid: pid, name: name) }
@@ -52,12 +53,25 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     }
 
     private func tick() {
-        let snap = monitor.tick()
+        // Heavy work (ps subprocess, IOKit, sudo capability check) off the main
+        // thread so the window stays responsive.
+        sampleQueue.async { [weak self] in
+            guard let self else { return }
+            let snap = self.monitor.tick()
+            let enabled = PowerMetricsClient.shared.isEnabled
+            DispatchQueue.main.async { self.apply(snap: snap, enabled: enabled) }
+        }
+    }
+
+    private func apply(snap: Snapshot, enabled: Bool) {
         latest = snap
         correlator.record(snap)
         _ = spikes.observe(snap)
-        refreshHelperStatus()
-        if model.pmEnabled { capturePower() }
+        model.pmEnabled = enabled
+        model.pmStatus = enabled
+            ? "Deep GPU capture: ON (live per-process Energy Impact via powermetrics)"
+            : "Deep GPU capture: off"
+        if enabled { capturePower() }
 
         // Menu-bar item: compact so it fits a crowded / notched menu bar.
         let b = statusItem.button

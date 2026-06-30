@@ -40,33 +40,41 @@ struct DashboardView: View {
     @ObservedObject var model: DashboardModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            if let c = model.culprit { culpritCard(c) }
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    header
+                    if let c = model.culprit { culpritCard(c) }
+                    Divider()
+                    suspects
+                    if !model.correlation.isEmpty {
+                        Divider(); correlationSection
+                    }
+                    if model.pmEnabled {
+                        Divider(); gpuSection
+                    }
+                    if !model.spikes.isEmpty {
+                        Divider(); spikesSection
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Divider()
-            suspects
-            if !model.correlation.isEmpty {
-                Divider(); correlationSection
-            }
-            if model.pmEnabled {
-                Divider(); gpuSection
-            }
-            if !model.spikes.isEmpty {
-                Divider(); spikesSection
-            }
-            Spacer(minLength: 0)
-            HStack {
-                Text(model.pmStatus).font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.pmStatus).font(.caption).foregroundStyle(.secondary)
+                    Text("Click Pause on a suspect to freeze it ~4s and watch if WindowServer drops — that proves the culprit.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button(model.pmEnabled ? "Disable deep GPU capture" : "Enable deep GPU capture (powermetrics)") {
                     model.onToggleHelper()
                 }.controlSize(.small)
             }
-            Text("Click Pause to freeze a suspect ~4s and watch if WindowServer drops — that proves the culprit.")
-                .font(.caption).foregroundStyle(.secondary)
+            .padding(12)
         }
-        .padding(16)
-        .frame(minWidth: 560, minHeight: 520)
+        .frame(minWidth: 640, minHeight: 560)
     }
 
     private var header: some View {
