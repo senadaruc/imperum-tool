@@ -52,10 +52,20 @@ final class VolumeAutoMountBlocker {
                 return nil
             }
 
-            guard let rawVolumeUUID = desc[kDADiskDescriptionVolumeUUIDKey as String] as CFTypeRef?,
-                  CFGetTypeID(rawVolumeUUID) == CFUUIDGetTypeID()
-            else { return nil }
-            let volumeUUID = CFUUIDCreateString(nil, (rawVolumeUUID as! CFUUID)) as String
+            let volumeUUID: String
+            if let rawVolumeUUID = desc[kDADiskDescriptionVolumeUUIDKey as String] as CFTypeRef?,
+               CFGetTypeID(rawVolumeUUID) == CFUUIDGetTypeID() {
+                volumeUUID = CFUUIDCreateString(nil, (rawVolumeUUID as! CFUUID)) as String
+            } else if let deviceIdentifier = DADiskGetBSDName(disk).map({ String(cString: $0) }) {
+                // Some volumes (e.g. EFI partitions) have no genuine
+                // VolumeUUID; ExternalVolume falls back to the device
+                // identifier for these, so this callback must match that
+                // same fallback or blocking such a volume would silently
+                // never take effect.
+                volumeUUID = deviceIdentifier
+            } else {
+                return nil
+            }
 
             let diskUUID: String
             if let rawDiskUUID = desc[kDADiskDescriptionMediaUUIDKey as String] as CFTypeRef?,
