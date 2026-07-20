@@ -91,4 +91,35 @@ final class ExternalVolumeTests: XCTestCase {
         let dockSSD = volumes.first { $0.name == "Dock-SSD" }
         XCTAssertEqual(dockSSD?.compositeID, "UUID-DISK8-UUID-DOCKSSD")
     }
+
+    func testResolvesAPFSContainerVolumesRegardlessOfListingOrder() {
+        // Same fixture as testResolvesAPFSContainerVolumesWithoutDuplicates,
+        // but with disk9 (the container) listed BEFORE disk8 (its parent) in
+        // "AllDisksAndPartitions". Correctness must not depend on which
+        // entry AllDisksAndPartitions happens to list first: without the
+        // order-independent exclusion, the disk9-processed-as-its-own-root
+        // entry (with diskUUID defaulting to "NONE") would win the trailing
+        // dedup instead of the correctly-resolved disk8-parented entry.
+        let list: [String: Any] = ["AllDisksAndPartitions": [
+            ["DeviceIdentifier": "disk9",
+             "APFSPhysicalStores": [["DeviceIdentifier": "disk8s2"]],
+             "APFSVolumes": [
+                ["DeviceIdentifier": "disk9s1", "Content": "APFS",
+                 "VolumeName": "Dock-SSD", "VolumeUUID": "UUID-DOCKSSD"]
+             ]],
+            ["DeviceIdentifier": "disk8", "Partitions": [
+                ["DeviceIdentifier": "disk8s1", "Content": "EFI", "VolumeName": "EFI"],
+                ["DeviceIdentifier": "disk8s2", "Content": "Apple_APFS"],
+            ]],
+        ]]
+        let diskInfo: [String: Any] = ["Internal": false, "VirtualOrPhysical": "Physical",
+                                        "BusProtocol": "USB", "DiskUUID": "UUID-DISK8"]
+        let volumes = parseExternalVolumes(
+            listPlist: plistData(list), infoPlists: ["disk8": plistData(diskInfo)])
+
+        XCTAssertEqual(volumes.count, 2)
+        XCTAssertEqual(volumes.map(\.name).sorted(), ["Dock-SSD", "EFI"])
+        let dockSSD = volumes.first { $0.name == "Dock-SSD" }
+        XCTAssertEqual(dockSSD?.compositeID, "UUID-DISK8-UUID-DOCKSSD")
+    }
 }

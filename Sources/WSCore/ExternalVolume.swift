@@ -79,10 +79,30 @@ public func parseExternalVolumes(listPlist: Data, infoPlists: [String: Data]) ->
         }
     }
 
+    // Container disks (e.g. disk9) are resolved via their parent's
+    // Apple_APFS partition below; they must be excluded from independent
+    // root-disk processing here, since their own identifier is never
+    // inside anyone's "Partitions" array (only their underlying store's
+    // identifier is), so the childDeviceIDs filter above doesn't catch
+    // them. This is a positive, order-independent exclusion — it does not
+    // depend on which entry `AllDisksAndPartitions` happens to list first.
+    var containerIdentifiersResolvedViaPartition = Set<String>()
+    for diskData in rootDisks {
+        guard let partitions = diskData["Partitions"] as? [[String: Any]] else { continue }
+        for partitionData in partitions where partitionData["Content"] as? String == "Apple_APFS" {
+            let storeID = partitionData["DeviceIdentifier"] as? String ?? ""
+            if let containerData = findAPFSContainer(forStore: storeID),
+               let containerID = containerData["DeviceIdentifier"] as? String {
+                containerIdentifiersResolvedViaPartition.insert(containerID)
+            }
+        }
+    }
+
     var results: [ExternalVolume] = []
 
     for diskData in rootDisks {
         guard let physicalIdentifier = diskData["DeviceIdentifier"] as? String else { continue }
+        if containerIdentifiersResolvedViaPartition.contains(physicalIdentifier) { continue }
         let diskInfo = parsedInfo(for: physicalIdentifier)
         if isRAIDMember(diskInfo) { continue }
         if (diskInfo?["Internal"] as? Bool) ?? false { continue }
@@ -120,11 +140,11 @@ public func parseExternalVolumes(listPlist: Data, infoPlists: [String: Data]) ->
         }
     }
 
-    // A container disk (e.g. disk9) can independently satisfy the root-disk
-    // scan above (its own identifier is never inside anyone's "Partitions"
-    // array — only its underlying store's identifier is) in addition to
-    // being discovered via its parent's Apple_APFS partition. De-duplicate
-    // by device identifier so its volumes aren't counted twice.
+    // Defensive backstop only: the containerIdentifiersResolvedViaPartition
+    // exclusion above already prevents container disks from being
+    // double-processed, order-independently. This trailing dedup no longer
+    // carries the correctness burden — it just guards against any other
+    // unforeseen source of duplicate device identifiers.
     var seenDeviceIDs = Set<String>()
     return results.filter { seenDeviceIDs.insert($0.deviceIdentifier).inserted }
 }
