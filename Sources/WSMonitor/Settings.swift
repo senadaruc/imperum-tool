@@ -103,14 +103,14 @@ struct SettingsView: View {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("macOS needs you to approve this. Enable “WSMonitor” under Allow in the Background / Open at Login.")
+                            Text("macOS needs you to approve this. Enable “Imperum Tool” under Allow in the Background / Open at Login.")
                                 .font(.caption)
                             Button("Open Login Items settings…") { config.openLoginItemsSettings() }
                                 .controlSize(.small)
                         }
                     }
                 } else {
-                    Text("Start WSMonitor automatically when you log in.")
+                    Text("Start Imperum Tool automatically when you log in.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -140,13 +140,13 @@ struct SettingsView: View {
                         Image(systemName: "gauge.with.dots.needle.bottom.50percent")
                             .font(.system(size: 26)).foregroundStyle(.tint)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("WSMonitor").font(.headline)
+                            Text("Imperum Tool").font(.headline)
                             Text("Version \(appVersionString())").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     Text("Finds which app is driving WindowServer CPU / RAM / GPU spikes — sudoless detection, live correlation, a pause-and-test causation check, and (optionally) powermetrics Energy Impact.")
                         .font(.caption).foregroundStyle(.secondary)
-                    Text("Per-app GPU% isn't exposed on Apple Silicon; WSMonitor works around that with proxy ranking and causation tests.")
+                    Text("Per-app GPU% isn't exposed on Apple Silicon; Imperum Tool works around that with proxy ranking and causation tests.")
                         .font(.caption2).foregroundStyle(.secondary)
                     Text("Developer ID: Imperum B.V.")
                         .font(.caption2).foregroundStyle(.secondary)

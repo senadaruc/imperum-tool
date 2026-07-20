@@ -50,13 +50,13 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         mainMenu.addItem(appItem)
         let appMenu = NSMenu()
         appItem.submenu = appMenu
-        appMenu.addItem(withTitle: "About WSMonitor", action: #selector(showAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: "About Imperum Tool", action: #selector(showAbout), keyEquivalent: "")
         appMenu.addItem(.separator())
         let settings = appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
         appMenu.addItem(withTitle: "Show Window", action: #selector(showWindowMenu), keyEquivalent: "0")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit WSMonitor", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit Imperum Tool", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         for item in appMenu.items where item.target == nil { item.target = self }
         NSApp.mainMenu = mainMenu
     }
@@ -66,7 +66,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "WSMonitor",
+            .applicationName: "Imperum Tool",
             .applicationVersion: appVersionString(),
             .credits: NSAttributedString(
                 string: "Finds which app drives WindowServer CPU / RAM / GPU spikes.\n\nSudoless detection · live correlation · pause-and-test causation · optional powermetrics Energy Impact.\n\nDeveloper ID: Imperum B.V.",
@@ -78,7 +78,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         if settingsWindow == nil {
             let host = NSHostingController(rootView: SettingsView(config: config))
             let win = NSWindow(contentViewController: host)
-            win.title = "WSMonitor Settings"
+            win.title = "Imperum Tool Settings"
             win.styleMask = [.titled, .closable]
             win.isReleasedWhenClosed = false
             win.center()
@@ -91,7 +91,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private func makeWindow() {
         let host = NSHostingController(rootView: DashboardView(model: model))
         let win = NSWindow(contentViewController: host)
-        win.title = "WSMonitor — WindowServer load"
+        win.title = "Imperum Tool — WindowServer load"
         win.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         win.setContentSize(NSSize(width: 600, height: 560))
         win.center()

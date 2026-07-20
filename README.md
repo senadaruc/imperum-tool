@@ -1,7 +1,10 @@
-# WSMonitor
+# Imperum Tool
 
 A macOS menu-bar + window app that finds **which app drives WindowServer
 CPU/RAM/GPU spikes**. Built for Apple Silicon (verified on M3 Max, macOS 26).
+
+(Displays in macOS as "Imperum Tool"; the executable, bundle identifier, and
+`WSMonitor.app` file/build paths below are unchanged.)
 
 Design + research live in `docs/superpowers/specs/`; the build plan in
 `docs/superpowers/plans/`.
@@ -25,7 +28,7 @@ number, color-coded by severity. Below (scrollable):
 ## Why no per-app GPU %
 
 Apple exposes **no per-app GPU% on Apple Silicon** — even `powermetrics`
-reports per-process `GPU ms/s = 0`. So WSMonitor uses pixel-area + CPU +
+reports per-process `GPU ms/s = 0`. So Imperum Tool uses pixel-area + CPU +
 correlation as proxies, `SIGSTOP` pause-and-watch for proof, and (optionally)
 `powermetrics` **Energy Impact** — Apple's combined CPU+GPU+ANE power cost —
 as the authoritative per-process signal. WindowServer's own CPU is read
