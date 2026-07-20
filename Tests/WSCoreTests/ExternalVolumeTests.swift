@@ -22,16 +22,36 @@ final class ExternalVolumeTests: XCTestCase {
         let list: [String: Any] = ["AllDisksAndPartitions": [
             ["DeviceIdentifier": "disk4", "Partitions": [
                 ["DeviceIdentifier": "disk4s1", "Content": "Windows_FAT_32",
-                 "VolumeName": "BACKUP", "VolumeUUID": "UUID-BACKUP"]
+                 "VolumeName": "BACKUP", "VolumeUUID": "UUID-BACKUP", "DiskUUID": "UUID-DISK4"]
             ]]
         ]]
         let info: [String: Any] = ["Internal": false, "VirtualOrPhysical": "Physical",
-                                    "BusProtocol": "USB", "DiskUUID": "UUID-DISK4"]
+                                    "BusProtocol": "USB"]
         let volumes = parseExternalVolumes(
             listPlist: plistData(list), infoPlists: ["disk4": plistData(info)])
         XCTAssertEqual(volumes.count, 1)
         XCTAssertEqual(volumes[0].name, "BACKUP")
         XCTAssertEqual(volumes[0].compositeID, "UUID-DISK4-UUID-BACKUP")
+    }
+
+    func testVolumeDiskUUIDIsReadPerVolumeNotFromWholeDiskInfo() {
+        // Regression guard for the fix that reads DiskUUID from the
+        // per-volume dict (in `list`) instead of the whole-physical-disk
+        // `diskutil info` dict (`infoPlists`). The disk-level `info` here
+        // deliberately has NO "DiskUUID" at all, so if the old (wrong)
+        // behavior ever came back, this volume's compositeID would fall
+        // back to "NONE-..." instead of picking up the per-volume value.
+        let list: [String: Any] = ["AllDisksAndPartitions": [
+            ["DeviceIdentifier": "disk7", "Partitions": [
+                ["DeviceIdentifier": "disk7s1", "Content": "Windows_FAT_32",
+                 "VolumeName": "SCRATCH", "VolumeUUID": "UUID-SCRATCH", "DiskUUID": "UUID-DISK7"]
+            ]]
+        ]]
+        let info: [String: Any] = ["Internal": false, "VirtualOrPhysical": "Physical", "BusProtocol": "USB"]
+        let volumes = parseExternalVolumes(
+            listPlist: plistData(list), infoPlists: ["disk7": plistData(info)])
+        XCTAssertEqual(volumes.count, 1)
+        XCTAssertEqual(volumes[0].compositeID, "UUID-DISK7-UUID-SCRATCH")
     }
 
     func testExcludesDiskImage() {
@@ -71,18 +91,18 @@ final class ExternalVolumeTests: XCTestCase {
         // this test also guards against double-counting disk9's volumes.
         let list: [String: Any] = ["AllDisksAndPartitions": [
             ["DeviceIdentifier": "disk8", "Partitions": [
-                ["DeviceIdentifier": "disk8s1", "Content": "EFI", "VolumeName": "EFI"],
+                ["DeviceIdentifier": "disk8s1", "Content": "EFI", "VolumeName": "EFI", "DiskUUID": "UUID-DISK8"],
                 ["DeviceIdentifier": "disk8s2", "Content": "Apple_APFS"],
             ]],
             ["DeviceIdentifier": "disk9",
              "APFSPhysicalStores": [["DeviceIdentifier": "disk8s2"]],
              "APFSVolumes": [
                 ["DeviceIdentifier": "disk9s1", "Content": "APFS",
-                 "VolumeName": "Dock-SSD", "VolumeUUID": "UUID-DOCKSSD"]
+                 "VolumeName": "Dock-SSD", "VolumeUUID": "UUID-DOCKSSD", "DiskUUID": "UUID-DISK8"]
              ]],
         ]]
         let diskInfo: [String: Any] = ["Internal": false, "VirtualOrPhysical": "Physical",
-                                        "BusProtocol": "USB", "DiskUUID": "UUID-DISK8"]
+                                        "BusProtocol": "USB"]
         let volumes = parseExternalVolumes(
             listPlist: plistData(list), infoPlists: ["disk8": plistData(diskInfo)])
 
@@ -105,15 +125,15 @@ final class ExternalVolumeTests: XCTestCase {
              "APFSPhysicalStores": [["DeviceIdentifier": "disk8s2"]],
              "APFSVolumes": [
                 ["DeviceIdentifier": "disk9s1", "Content": "APFS",
-                 "VolumeName": "Dock-SSD", "VolumeUUID": "UUID-DOCKSSD"]
+                 "VolumeName": "Dock-SSD", "VolumeUUID": "UUID-DOCKSSD", "DiskUUID": "UUID-DISK8"]
              ]],
             ["DeviceIdentifier": "disk8", "Partitions": [
-                ["DeviceIdentifier": "disk8s1", "Content": "EFI", "VolumeName": "EFI"],
+                ["DeviceIdentifier": "disk8s1", "Content": "EFI", "VolumeName": "EFI", "DiskUUID": "UUID-DISK8"],
                 ["DeviceIdentifier": "disk8s2", "Content": "Apple_APFS"],
             ]],
         ]]
         let diskInfo: [String: Any] = ["Internal": false, "VirtualOrPhysical": "Physical",
-                                        "BusProtocol": "USB", "DiskUUID": "UUID-DISK8"]
+                                        "BusProtocol": "USB"]
         let volumes = parseExternalVolumes(
             listPlist: plistData(list), infoPlists: ["disk8": plistData(diskInfo)])
 

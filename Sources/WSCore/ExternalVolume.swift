@@ -109,18 +109,24 @@ public func parseExternalVolumes(listPlist: Data, infoPlists: [String: Data]) ->
         let isVirtual = (diskInfo?["VirtualOrPhysical"] as? String) == "Virtual"
         if isVirtual && !isRAIDMaster(diskInfo) { continue } // disk image
 
-        let diskUUID = diskInfo?["DiskUUID"] as? String
         let busProtocol = diskInfo?["BusProtocol"] as? String
 
         func appendVolume(_ volumeData: [String: Any]) {
             guard let deviceIdentifier = volumeData["DeviceIdentifier"] as? String else { return }
             let contentType = volumeData["Content"] as? String
             if contentType == "Apple_RAID" || contentType == "Apple_RAID_Offline" { return }
+            // Read per-volume, not from the whole-disk `diskInfo` above: this
+            // must match VolumeAutoMountBlocker's DA callback, which reads
+            // kDADiskDescriptionMediaUUIDKey from the specific mounting
+            // volume's own DA description — a per-volume value, not a
+            // per-physical-disk one. (busProtocol above is genuinely a
+            // whole-disk property, correctly shared across all its volumes.)
+            let volumeDiskUUID = volumeData["DiskUUID"] as? String
             let volumeUUID = volumeData["VolumeUUID"] as? String ?? deviceIdentifier
             let volumeName = volumeData["VolumeName"] as? String ?? contentType ?? deviceIdentifier
             results.append(ExternalVolume(
                 name: volumeName, deviceIdentifier: deviceIdentifier,
-                diskUUID: diskUUID, volumeUUID: volumeUUID, busProtocol: busProtocol))
+                diskUUID: volumeDiskUUID, volumeUUID: volumeUUID, busProtocol: busProtocol))
         }
 
         if let partitions = diskData["Partitions"] as? [[String: Any]] {

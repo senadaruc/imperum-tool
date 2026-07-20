@@ -76,7 +76,19 @@ final class VolumeAutoMountBlocker {
             }
 
             let compositeID = "\(diskUUID)-\(volumeUUID)"
-            guard this.blockedIDs.contains(compositeID) else { return nil }
+            guard this.blockedIDs.contains(compositeID) else {
+                // Only log misses when the block list is non-empty — this
+                // callback fires for essentially every volume mount
+                // system-wide (including disk images and Time Machine
+                // snapshots), and most users have nothing blocked. This is
+                // the diagnostic trail for compositeID drift: if a blocked
+                // volume ever auto-mounts anyway, Console.app will show the
+                // computed ID that failed to match.
+                if !this.blockedIDs.isEmpty {
+                    NSLog("Imperum Tool: mount approved for \(compositeID) — not in the \(this.blockedIDs.count)-entry block list")
+                }
+                return nil
+            }
 
             NSLog("Imperum Tool: dissenting auto-mount for blocked volume \(compositeID)")
             let dissenter = DADissenterCreate(kCFAllocatorDefault, DAReturn(kDAReturnNotPermitted), nil)
