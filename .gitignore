@@ -4,3 +4,4 @@ DerivedData/
 build/
 *.app
 .DS_Store
+.worktrees/
