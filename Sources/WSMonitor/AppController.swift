@@ -9,6 +9,8 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private let correlator = Correlator()
     private let model = DashboardModel()
     private let config = AppConfig()
+    private let volumeBlockStore = VolumeBlockStore()
+    private lazy var volumeAutoMountBlocker = VolumeAutoMountBlocker(store: volumeBlockStore)
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
     private var timer: Timer?
@@ -22,6 +24,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         model.onOpenSettings = { [weak self] in self?.showSettings() }
         config.onChange = { [weak self] in self?.applyConfig() }
         spikes.config = config.spikeConfig
+        _ = volumeAutoMountBlocker   // force the DiskArbitration session to start now, not on first Settings open
         buildMainMenu()
         statusItem.button?.action = #selector(toggleWindow)
         statusItem.button?.target = self
@@ -76,7 +79,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
 
     @objc private func showSettings() {
         if settingsWindow == nil {
-            let host = NSHostingController(rootView: SettingsView(config: config))
+            let host = NSHostingController(rootView: SettingsView(config: config, blockStore: volumeBlockStore))
             let win = NSWindow(contentViewController: host)
             win.title = "Imperum Tool Settings"
             win.styleMask = [.titled, .closable]
