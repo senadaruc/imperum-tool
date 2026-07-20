@@ -94,6 +94,7 @@ func appVersionString() -> String {
 
 struct SettingsView: View {
     @ObservedObject var config: AppConfig
+    @ObservedObject var blockStore: VolumeBlockStore
 
     var body: some View {
         Form {
@@ -133,6 +134,8 @@ struct SettingsView: View {
                 Text("Crossing either threshold turns the menu-bar gauge red and records a spike.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+
+            ExternalVolumesSettingsSection(blockStore: blockStore)
 
             Section("About") {
                 VStack(alignment: .leading, spacing: 6) {
