@@ -22,6 +22,25 @@ number, color-coded by severity. Below (scrollable):
 - **Power cost by process** (when deep capture is enabled) — per-process
   Energy Impact from `powermetrics`
 
+## Tap gestures (Apple Silicon MacBooks)
+
+Tap the palm rest to run an action — **Settings → Tap Gestures**. Six slots:
+LEFT ×1/×2/×3 and RIGHT ×1/×2/×3, each mapped to one of 50+ built-in actions
+(screenshots, clipboard, media keys, mic mute, brightness, window tiling,
+Spaces, lock/sleep, Wi-Fi/Bluetooth, eject, Empty Trash, battery HUD,
+flashlight…) or a custom keyboard shortcut, app, URL, or Apple Shortcut.
+
+How it works: the Sensor Processing Unit's accelerometer + gyro stream at
+~100 Hz through the private `IOHIDEventSystemClient` API (no entitlement
+needed, but Developer ID only — never App Store). `TapDetector` high-passes
+the signal, groups impulses into ×N events, and ignores anything within ¼ s
+of a keypress or click. Left/right is learned by a 10-tap **calibration**
+in Settings (the sensor sits in the lid, so the sign convention differs per
+model). Keystroke, media-key and window actions need **Accessibility**
+access; the tab shows the status and a button to grant it.
+
+Design: `docs/superpowers/specs/2026-09-06-tap-gestures-design.md`.
+
 ## Why no per-app GPU %
 
 Apple exposes **no per-app GPU% on Apple Silicon** — even `powermetrics`
@@ -57,5 +76,5 @@ can't take arguments or write files.
 
 ## Develop / test
 
-    swift test                 # ImperumCore logic + samplers (30 tests)
+    swift test                 # ImperumCore logic + samplers + tap detector (69 tests)
     swift run ImperumTool        # run from source

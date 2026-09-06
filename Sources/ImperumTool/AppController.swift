@@ -11,6 +11,8 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private let config = AppConfig()
     private let volumeBlockStore = VolumeBlockStore()
     private lazy var volumeAutoMountBlocker = VolumeAutoMountBlocker(store: volumeBlockStore)
+    private let tapStore = TapSettingsStore()
+    private lazy var tapGestures = TapGestureController(store: tapStore)
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
     private var timer: Timer?
@@ -25,6 +27,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         config.onChange = { [weak self] in self?.applyConfig() }
         spikes.config = config.spikeConfig
         _ = volumeAutoMountBlocker   // force the DiskArbitration session to start now, not on first Settings open
+        _ = tapGestures              // likewise: the motion sensor must run whether or not Settings is ever opened
         buildMainMenu()
         statusItem.button?.action = #selector(toggleWindow)
         statusItem.button?.target = self
@@ -32,6 +35,26 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         tick()
         startTimer()
         showWindow()   // show on launch so there is always a visible UI
+        snapshotSettingsIfRequested()
+    }
+
+    /// Dev hook: `ImperumTool --snapshot-settings <png> [tab]` renders the Settings
+    /// window to a PNG (no Screen Recording permission needed) and quits.
+    private func snapshotSettingsIfRequested() {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "--snapshot-settings"), i + 1 < args.count else { return }
+        let path = args[i + 1]
+        if i + 2 < args.count, !args[i + 2].hasPrefix("--") { SettingsTabs.initialTab = args[i + 2] }
+        showSettings()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            // Whole window incl. title bar + toolbar (own-process windows need no Screen Recording permission).
+            if let win = self?.settingsWindow,
+               let cg = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(win.windowNumber), [.boundsIgnoreFraming, .bestResolution]) {
+                let rep = NSBitmapImageRep(cgImage: cg)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            }
+            NSApp.terminate(nil)
+        }
     }
 
     private func startTimer() {
@@ -79,16 +102,19 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
 
     @objc private func showSettings() {
         if settingsWindow == nil {
-            let host = NSHostingController(rootView: SettingsView(config: config, blockStore: volumeBlockStore))
-            let win = NSWindow(contentViewController: host)
+            let tabs = SettingsTabs.makeController(config: config, blockStore: volumeBlockStore,
+                                                   tapStore: tapStore, tapController: tapGestures)
+            let win = NSWindow(contentViewController: tabs)
             win.title = "Imperum Tool Settings"
             win.styleMask = [.titled, .closable]
+            win.toolbarStyle = .preference
             win.isReleasedWhenClosed = false
             win.center()
             settingsWindow = win
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.makeFirstResponder(nil)   // don't auto-focus the first text field
     }
 
     private func makeWindow() {

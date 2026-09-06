@@ -92,9 +92,42 @@ func appVersionString() -> String {
     return b != nil && b != v ? "\(v) (\(b!))" : v
 }
 
-struct SettingsView: View {
+/// Builds the Settings window content: a native preferences-style toolbar
+/// (icon + label per tab, like System Settings) hosting the SwiftUI tabs.
+/// NSTabViewController in `.toolbar` style resizes the window to each tab's
+/// `preferredContentSize` when switching.
+enum SettingsTabs {
+    /// Tab shown when the window opens ("general" | "taps" | "volumes").
+    static var initialTab = "general"
+
+    static func makeController(config: AppConfig, blockStore: VolumeBlockStore,
+                               tapStore: TapSettingsStore, tapController: TapGestureController) -> NSTabViewController {
+        let tabs = NSTabViewController()
+        tabs.tabStyle = .toolbar
+        func add<V: View>(_ id: String, _ label: String, _ symbol: String, size: NSSize, _ view: V) {
+            let host = NSHostingController(rootView: view)
+            host.preferredContentSize = size
+            let item = NSTabViewItem(viewController: host)
+            item.identifier = id
+            item.label = label
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+            tabs.addTabViewItem(item)
+        }
+        add("general", "General", "gearshape", size: NSSize(width: 600, height: 640),
+            GeneralSettingsTab(config: config))
+        add("taps", "Tap Gestures", "hand.tap", size: NSSize(width: 600, height: 720),
+            TapGesturesSettingsTab(store: tapStore, controller: tapController))
+        add("volumes", "External Volumes", "externaldrive", size: NSSize(width: 600, height: 420),
+            Form { ExternalVolumesSettingsSection(blockStore: blockStore) }.formStyle(.grouped))
+        if let i = tabs.tabViewItems.firstIndex(where: { ($0.identifier as? String) == initialTab }) {
+            tabs.selectedTabViewItemIndex = i
+        }
+        return tabs
+    }
+}
+
+struct GeneralSettingsTab: View {
     @ObservedObject var config: AppConfig
-    @ObservedObject var blockStore: VolumeBlockStore
 
     var body: some View {
         Form {
@@ -135,8 +168,6 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            ExternalVolumesSettingsSection(blockStore: blockStore)
-
             Section("About") {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 10) {
@@ -157,7 +188,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 560)
         .onAppear { config.refreshLoginStatus() }
     }
 }
