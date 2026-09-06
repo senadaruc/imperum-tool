@@ -170,18 +170,29 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         if enabled { capturePower() }
 
         // Menu-bar item: compact so it fits a crowded / notched menu bar.
-        // Render as a TEMPLATE so macOS draws it with correct contrast (crisp
-        // white on a dark menu bar) — always clearly visible. Tint RED only
-        // during an actual spike, so colour means "problem now", not constant dim.
+        // Normal state: a TEMPLATE image + plain title, so macOS draws both in
+        // the menu bar's own contrast colour (white on dark, black on light).
+        // Spike state: contentTintColor is unreliable on status-bar buttons
+        // (it renders near-black on macOS 26), so pre-render the symbol in red
+        // via a palette symbol configuration and colour the title to match.
         let b = statusItem.button
-        let img = NSImage(systemSymbolName: "gauge.with.dots.needle.bottom.50percent",
-                          accessibilityDescription: "WindowServer load")
+        let symbol = "gauge.with.dots.needle.bottom.50percent"
         let spiking = snap.wsCPU > config.cpuThreshold || (snap.gpu.utilization ?? 0) > config.gpuThreshold
-        img?.isTemplate = !spiking          // template = auto-contrast; non-template lets red show
-        b?.image = img
+        let title = String(format: " %.0f", snap.wsCPU)
         b?.imagePosition = .imageLeading
-        b?.title = String(format: " %.0f", snap.wsCPU)
-        b?.contentTintColor = spiking ? .systemRed : nil
+        b?.contentTintColor = nil
+        if spiking, let base = NSImage(systemSymbolName: symbol, accessibilityDescription: "WindowServer load (spiking)"),
+           let red = base.withSymbolConfiguration(.init(paletteColors: [.systemRed])) {
+            red.isTemplate = false
+            b?.image = red
+            b?.attributedTitle = NSAttributedString(string: title, attributes: [
+                .foregroundColor: NSColor.systemRed, .font: NSFont.menuBarFont(ofSize: 0)])
+        } else {
+            let img = NSImage(systemSymbolName: symbol, accessibilityDescription: "WindowServer load")
+            img?.isTemplate = true
+            b?.image = img
+            b?.title = title
+        }
 
         // Window model.
         model.snapshot = snap
