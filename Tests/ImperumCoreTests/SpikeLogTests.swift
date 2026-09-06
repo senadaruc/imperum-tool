@@ -1,5 +1,5 @@
 import XCTest
-@testable import WSCore
+@testable import ImperumCore
 
 final class SpikeLogTests: XCTestCase {
     private func snap(_ t: TimeInterval, wsCPU: Double, gpu: Double, top: String = "Chrome") -> Snapshot {

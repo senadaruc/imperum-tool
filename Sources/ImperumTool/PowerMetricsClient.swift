@@ -1,5 +1,5 @@
 import Foundation
-import WSCore
+import ImperumCore
 
 /// Runs powermetrics as root in a hardened way:
 ///   - a ROOT-OWNED wrapper at `wrapperPath` execs powermetrics with a FIXED
@@ -9,14 +9,17 @@ import WSCore
 /// `NOPASSWD: /usr/bin/powermetrics` would allow. No XPC, no daemon.
 final class PowerMetricsClient {
     static let shared = PowerMetricsClient()
-    static let rawDumpPath = NSString(string: "~/WSMonitor-powermetrics-sample.txt").expandingTildeInPath
+    static let rawDumpPath = NSString(string: "~/ImperumTool-powermetrics-sample.txt").expandingTildeInPath
 
-    private let wrapperPath = "/usr/local/libexec/wsmonitor-powermetrics"
-    private let sudoersPath = "/etc/sudoers.d/wsmonitor"
+    private let wrapperPath = "/usr/local/libexec/imperum-tool-powermetrics"
+    private let sudoersPath = "/etc/sudoers.d/imperum-tool"
+    /// Paths used before the app was renamed from WSMonitor; removed on install/uninstall.
+    private let legacyWrapperPath = "/usr/local/libexec/wsmonitor-powermetrics"
+    private let legacySudoersPath = "/etc/sudoers.d/wsmonitor"
 
     private static let wrapperContents = """
     #!/bin/sh
-    # Installed by WSMonitor. Root-owned, fixed argv — ALL arguments are ignored.
+    # Installed by Imperum Tool. Root-owned, fixed argv — ALL arguments are ignored.
     exec /usr/bin/powermetrics --samplers tasks,gpu_power --show-process-gpu --show-process-energy -n 1 -i 200
     """
 
@@ -44,7 +47,7 @@ final class PowerMetricsClient {
         }
         // Stage files in a private, user-only temp dir (UUID paths — no user content
         // in the privileged shell string; the username lives only inside the file).
-        let dir = (NSTemporaryDirectory() as NSString).appendingPathComponent("wsmon-\(UUID().uuidString)")
+        let dir = (NSTemporaryDirectory() as NSString).appendingPathComponent("imperumtool-\(UUID().uuidString)")
         let wrapperTmp = (dir as NSString).appendingPathComponent("wrapper")
         let sudoersTmp = (dir as NSString).appendingPathComponent("sudoers")
         do {
@@ -58,6 +61,7 @@ final class PowerMetricsClient {
         // Privileged step: install root-owned files; validate sudoers or roll back.
         // Only fixed/UUID paths appear in this string — no user-controlled content.
         let cmd = [
+            "rm -f '\(legacySudoersPath)' '\(legacyWrapperPath)'",
             "mkdir -p /usr/local/libexec",
             "chown root:wheel /usr/local/libexec",
             "chmod 755 /usr/local/libexec",
@@ -71,7 +75,7 @@ final class PowerMetricsClient {
     }
 
     func uninstall() -> Result<Void, Error> {
-        runAdmin("rm -f '\(sudoersPath)' '\(wrapperPath)'")
+        runAdmin("rm -f '\(sudoersPath)' '\(wrapperPath)' '\(legacySudoersPath)' '\(legacyWrapperPath)'")
     }
 
     private func runAdmin(_ shellCommand: String) -> Result<Void, Error> {
@@ -92,7 +96,7 @@ final class PowerMetricsClient {
     }
 
     private func mkErr(_ msg: String) -> Error {
-        NSError(domain: "WSMonitor", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
+        NSError(domain: "ImperumTool", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
     }
 
     private var inFlight = false

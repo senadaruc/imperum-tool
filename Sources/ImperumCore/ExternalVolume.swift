@@ -51,7 +51,7 @@ private func isRAIDMember(_ info: [String: Any]?) -> Bool {
 /// included (matching MountMate, which lists them too — they're harmless to
 /// offer blocking for even though they rarely auto-mount).
 ///
-/// Pure and synchronous — call `fetchExternalVolumes()` (WSCore's thin
+/// Pure and synchronous — call `fetchExternalVolumes()` (ImperumCore's thin
 /// subprocess wrapper) instead of shelling out yourself.
 public func parseExternalVolumes(listPlist: Data, infoPlists: [String: Data]) -> [ExternalVolume] {
     guard

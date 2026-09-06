@@ -19,7 +19,7 @@ public final class VolumeBlockStore: ObservableObject {
     @Published public private(set) var blocked: [BlockedVolume]
 
     private let defaults: UserDefaults
-    private static let key = "wsmonitor_blockedVolumes_v1"
+    private static let key = "imperumTool_blockedVolumes_v1"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

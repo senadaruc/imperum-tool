@@ -1,7 +1,7 @@
 import Combine
 import DiskArbitration
 import Foundation
-import WSCore
+import ImperumCore
 
 /// Dissents automatic OS mounts for volumes present in a `VolumeBlockStore`,
 /// via a DiskArbitration mount-approval callback. Started once at app

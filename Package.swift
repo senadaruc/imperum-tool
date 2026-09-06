@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "WSMonitor",
+    name: "ImperumTool",
     platforms: [.macOS(.v14)],
     targets: [
-        .target(name: "WSCore"),
+        .target(name: "ImperumCore"),
         .executableTarget(
-            name: "WSMonitor",
-            dependencies: ["WSCore"]
+            name: "ImperumTool",
+            dependencies: ["ImperumCore"]
         ),
-        .testTarget(name: "WSCoreTests", dependencies: ["WSCore"]),
+        .testTarget(name: "ImperumCoreTests", dependencies: ["ImperumCore"]),
     ]
 )

@@ -1,6 +1,6 @@
 import SwiftUI
 import ServiceManagement
-import WSCore
+import ImperumCore
 
 /// User-configurable settings, persisted in UserDefaults. Changes fire `onChange`
 /// so the AppController can re-apply them live (timer cadence, spike thresholds).
@@ -68,7 +68,7 @@ final class AppConfig: ObservableObject {
                 if svc.status != .notRegistered { try svc.unregister() }
             }
         } catch {
-            NSLog("WSMonitor login-item change failed: \(error.localizedDescription)")
+            NSLog("Imperum Tool login-item change failed: \(error.localizedDescription)")
         }
         // `.requiresApproval` is NOT a failure — the item is registered, macOS just
         // wants the user to approve it. Keep the toggle on and surface the hint.

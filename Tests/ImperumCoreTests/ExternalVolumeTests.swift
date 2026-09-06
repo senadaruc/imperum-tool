@@ -1,5 +1,5 @@
 import XCTest
-@testable import WSCore
+@testable import ImperumCore
 
 private func plistData(_ dict: [String: Any]) -> Data {
     try! PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)

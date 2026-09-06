@@ -1,6 +1,6 @@
 import AppKit
 
-// Renders WSMonitor's app icon: an Apple-style squircle with an indigo→violet
+// Renders ImperumTool's app icon: an Apple-style squircle with an indigo→violet
 // gradient and a white gauge glyph, then builds AppIcon.icns. Native CoreGraphics.
 
 let S: CGFloat = 1024

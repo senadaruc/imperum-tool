@@ -1,5 +1,5 @@
 import SwiftUI
-import WSCore
+import ImperumCore
 
 extension AppSample: Identifiable { public var id: Int32 { pid } }
 

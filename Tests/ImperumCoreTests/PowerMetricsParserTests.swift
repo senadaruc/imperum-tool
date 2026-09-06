@@ -1,5 +1,5 @@
 import XCTest
-@testable import WSCore
+@testable import ImperumCore
 
 final class PowerMetricsParserTests: XCTestCase {
     // Real M3 Max / macOS 26 format: multi-value Deadlines/Wakeups columns,

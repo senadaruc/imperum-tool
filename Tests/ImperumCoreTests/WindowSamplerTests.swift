@@ -1,5 +1,5 @@
 import XCTest
-@testable import WSCore
+@testable import ImperumCore
 
 final class WindowSamplerTests: XCTestCase {
     func testFiltersAndAggregates() {

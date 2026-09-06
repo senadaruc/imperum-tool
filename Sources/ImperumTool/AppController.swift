@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import WSCore
+import ImperumCore
 
 final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -16,7 +16,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private var timer: Timer?
     private var latest: Snapshot?
     private let wsPID = windowServerPID()
-    private let sampleQueue = DispatchQueue(label: "io.imperum.wsmonitor.sample")
+    private let sampleQueue = DispatchQueue(label: "io.imperum.tool.sample")
 
     func start() {
         model.onPause = { [weak self] pid, name in self?.pauseSuspect(pid: pid, name: name) }
@@ -189,7 +189,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private func pauseSuspect(pid: Int32, name: String) {
         guard !model.testing else { return }   // one test at a time
         let before = latest?.wsCPU ?? 0
-        NSLog("WSMonitor pause-test: \(name) pid \(pid), WS before \(before)%")
+        NSLog("Imperum Tool pause-test: \(name) pid \(pid), WS before \(before)%")
         // Immediate, visible feedback so the click is never a no-op.
         model.testing = true
         model.testStatus = String(format: "Pausing %@ for ~2s, watching WindowServer (was %.0f%%)…", name, before)
@@ -200,7 +200,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
             let after = self.measureWSCPU()
             resume(pid: pid)
             let r = watchDrop(before: before, after: after)
-            NSLog("WSMonitor pause-test result: \(name) froze=\(froze) WS \(before)→\(after) drop \(r.drop)")
+            NSLog("Imperum Tool pause-test result: \(name) froze=\(froze) WS \(before)→\(after) drop \(r.drop)")
             DispatchQueue.main.async {
                 self.model.testing = false
                 if !froze {

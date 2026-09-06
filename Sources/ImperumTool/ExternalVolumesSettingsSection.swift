@@ -1,5 +1,5 @@
 import SwiftUI
-import WSCore
+import ImperumCore
 
 /// Settings section listing currently-connected external volumes with a
 /// block-auto-mount toggle each, plus any blocked volumes that aren't

@@ -1,8 +1,8 @@
 import XCTest
-@testable import WSCore
+@testable import ImperumCore
 
 final class SmokeTests: XCTestCase {
     func testVersion() {
-        XCTAssertEqual(WSCore.version, "0.1.0")
+        XCTAssertEqual(ImperumCore.version, "0.1.0")
     }
 }
