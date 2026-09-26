@@ -26,7 +26,7 @@ final class CopyStackModel: ObservableObject {
 
     init(store: ClipStore, settings: ClipboardSettingsStore, archive: @escaping () -> ClipArchive?) {
         self.store = store; self.settings = settings; self.archive = archive
-        store.$clips.sink { [weak self] _ in self?.recompute() }.store(in: &bag)
+        store.$clips.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.recompute() }.store(in: &bag)
         favicons.onLoaded = { [weak self] in self?.objectWillChange.send() }
     }
 
