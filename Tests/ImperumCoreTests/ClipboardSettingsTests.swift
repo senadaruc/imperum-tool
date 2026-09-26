@@ -1,0 +1,56 @@
+import XCTest
+@testable import ImperumCore
+
+final class ClipboardSettingsTests: XCTestCase {
+    private func isolatedDefaults() -> UserDefaults {
+        let name = "ClipboardSettingsTests.\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: name)!
+        d.removePersistentDomain(forName: name)
+        return d
+    }
+
+    func testDefaultsMatchSpec() {
+        let s = ClipboardSettings()
+        XCTAssertTrue(s.enabled)
+        XCTAssertEqual(s.trigger, .doubleTap)
+        XCTAssertEqual(s.doubleTapMs, 300)
+        XCTAssertEqual(s.maxStack, 500)
+        XCTAssertEqual(s.retentionDays, 30)
+        XCTAssertFalse(s.clearOnQuit)
+        XCTAssertTrue(s.showBadge)
+        XCTAssertFalse(s.showFavicons)
+        XCTAssertFalse(s.paused)
+        XCTAssertEqual(s.excludedBundleIDs, ["com.1password.1password", "com.agilebits.onepassword7",
+                                             "com.bitwarden.desktop", "com.apple.keychainaccess"])
+        XCTAssertEqual(s.limits, ClipLimits(maxStack: 500, retentionDays: 30))
+    }
+
+    func testStorePersistsAndReloads() {
+        let d = isolatedDefaults()
+        let store = ClipboardSettingsStore(defaults: d)
+        store.settings.maxStack = 42
+        store.settings.trigger = .both
+        let again = ClipboardSettingsStore(defaults: d)
+        XCTAssertEqual(again.settings.maxStack, 42)
+        XCTAssertEqual(again.settings.trigger, .both)
+    }
+
+    func testDecodingOlderJSONWithMissingKeysUsesDefaults() throws {
+        let json = #"{"enabled":false,"maxStack":99}"#.data(using: .utf8)!
+        let s = try JSONDecoder().decode(ClipboardSettings.self, from: json)
+        XCTAssertFalse(s.enabled)
+        XCTAssertEqual(s.maxStack, 99)
+        XCTAssertEqual(s.retentionDays, 30)
+        XCTAssertEqual(s.trigger, .doubleTap)
+    }
+
+    func testClampsOutOfRangeValues() {
+        var s = ClipboardSettings()
+        s.doubleTapMs = 10;  XCTAssertEqual(s.doubleTapMs, 200)
+        s.doubleTapMs = 900; XCTAssertEqual(s.doubleTapMs, 400)
+        s.maxStack = 1;      XCTAssertEqual(s.maxStack, 20)
+        s.maxStack = 9999;   XCTAssertEqual(s.maxStack, 2000)
+        s.retentionDays = 0; XCTAssertEqual(s.retentionDays, 1)
+        s.retentionDays = 999; XCTAssertEqual(s.retentionDays, 365)
+    }
+}
