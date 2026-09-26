@@ -5,11 +5,13 @@ import ImperumCore
 /// Writes a clip to the general pasteboard in its native form and posts ⌘V.
 /// The panel is non-activating, so the app the user was in still has focus.
 final class ClipPaster {
-    private let archive: () -> ClipArchive?
+    /// Cache-first, then archive lookup: `(id, suffix)` (e.g. "png",
+    /// "thumb.png") -> the sealed blob's plaintext, if available anywhere.
+    private let blobLookup: (UUID, String) -> Data?
     /// The change count our write produced; the watcher skips it.
     private(set) var lastOwnChangeCount: Int?
 
-    init(archive: @escaping () -> ClipArchive?) { self.archive = archive }
+    init(blobLookup: @escaping (UUID, String) -> Data?) { self.blobLookup = blobLookup }
 
     @discardableResult
     func paste(_ clip: Clip) -> Bool {
@@ -29,7 +31,7 @@ final class ClipPaster {
         case .fileURLs(let urls):
             write = { pb in pb.writeObjects(urls.map { $0 as NSURL }) }
         case .blob(let id, _, _, _):
-            guard let png = archive()?.loadBlob(id: id), let img = NSImage(data: png) else {
+            guard let png = blobLookup(id, "png"), let img = NSImage(data: png) else {
                 HUD.shared.show("That image is no longer in the archive", symbol: "photo.badge.exclamationmark")
                 return false
             }

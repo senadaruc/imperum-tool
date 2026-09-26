@@ -20,12 +20,16 @@ final class CopyStackModel: ObservableObject {
     let store: ClipStore
     let settings: ClipboardSettingsStore
     private let archive: () -> ClipArchive?
+    /// Cache-first, then archive lookup: `(id, suffix)` -> the blob's
+    /// plaintext, if available anywhere (works in session-only mode).
+    private let blobLookup: (UUID, String) -> Data?
     private var thumbs: [UUID: NSImage] = [:]
     private let favicons = FaviconLoader()
     private var bag = Set<AnyCancellable>()
 
-    init(store: ClipStore, settings: ClipboardSettingsStore, archive: @escaping () -> ClipArchive?) {
-        self.store = store; self.settings = settings; self.archive = archive
+    init(store: ClipStore, settings: ClipboardSettingsStore, archive: @escaping () -> ClipArchive?,
+         blobLookup: @escaping (UUID, String) -> Data?) {
+        self.store = store; self.settings = settings; self.archive = archive; self.blobLookup = blobLookup
         store.$clips.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.recompute() }.store(in: &bag)
         favicons.onLoaded = { [weak self] in self?.objectWillChange.send() }
     }
@@ -67,7 +71,7 @@ final class CopyStackModel: ObservableObject {
     func thumbnail(for clip: Clip) -> NSImage? {
         guard let id = clip.blobID else { return nil }
         if let t = thumbs[id] { return t }
-        guard let data = archive()?.loadBlob(id: id, suffix: "thumb.png") ?? archive()?.loadBlob(id: id),
+        guard let data = blobLookup(id, "thumb.png") ?? blobLookup(id, "png"),
               let img = NSImage(data: data) else { return nil }
         thumbs[id] = img
         return img

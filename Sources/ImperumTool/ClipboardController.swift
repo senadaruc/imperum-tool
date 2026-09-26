@@ -16,8 +16,12 @@ final class ClipboardController {
     private var archive: ClipArchive?
     private let reader = NSPasteboardReader()
     private let tap = CmdVTap()
-    private lazy var paster = ClipPaster(archive: { [weak self] in self?.archive })
-    private lazy var model = CopyStackModel(store: store, settings: settings, archive: { [weak self] in self?.archive })
+    /// Session-only image cache; makes paste and thumbnails work even when
+    /// the archive never sees the blob (session-only mode) or is unavailable.
+    private let blobCache = BlobCache()
+    private lazy var paster = ClipPaster(blobLookup: { [weak self] id, suffix in self?.lookupBlob(id, suffix: suffix) })
+    private lazy var model = CopyStackModel(store: store, settings: settings, archive: { [weak self] in self?.archive },
+                                            blobLookup: { [weak self] id, suffix in self?.lookupBlob(id, suffix: suffix) })
     private lazy var panel = CopyStackPanel(model: model)
     private lazy var statusItem = ClipboardStatusItem(store: store, settings: settings)
     private var pollTimer: Timer?
@@ -44,7 +48,7 @@ final class ClipboardController {
         archive = ClipArchive(directory: Self.directory, keyProvider: keyProvider)
         load()
         store.onChange = { [weak self] in self?.scheduleSave() }
-        store.onBlobsDropped = { [weak self] ids in self?.archive?.deleteBlobs(ids) }
+        store.onBlobsDropped = { [weak self] ids in self?.archive?.deleteBlobs(ids); self?.blobCache.remove(ids) }
         model.onPaste = { [weak self] clip in self?.paste(clip) }
         model.onClose = { [weak self] in self?.panel.hide() }
         tap.onOpenPanel = { [weak self] in self?.showPanel(anchor: .mouseScreen) }
@@ -98,11 +102,25 @@ final class ClipboardController {
         // this content read (e.g. another app copied right behind us). Discard a
         // stale capture and let the next poll pick up the newer change.
         guard reader.changeCount == count else { return }
-        if let data = captured.blobData, let id = captured.clip.blobID, !settings.settings.clearOnQuit, !archiveUnavailable {
-            try? archive?.saveBlob(data, id: id)
-            if let thumb = ImageThumbnail.png(from: data, maxEdge: 64) { try? archive?.saveBlob(thumb, id: id, suffix: "thumb.png") }
+        if let data = captured.blobData, let id = captured.clip.blobID {
+            let thumb = ImageThumbnail.png(from: data, maxEdge: 64)
+            // Always cache in memory first: session-only mode (or an
+            // unavailable archive) must not leave the paster/thumbnail code
+            // with nothing to read.
+            blobCache.set(data, thumb: thumb, for: id)
+            if !settings.settings.clearOnQuit, !archiveUnavailable {
+                try? archive?.saveBlob(data, id: id)
+                if let thumb { try? archive?.saveBlob(thumb, id: id, suffix: "thumb.png") }
+            }
         }
         store.insert(captured.clip, limits: settings.settings.limits)
+    }
+
+    /// Cache-first, then archive: the lookup the paster and panel use so
+    /// image clips work even when nothing was ever written to disk.
+    private func lookupBlob(_ id: UUID, suffix: String) -> Data? {
+        if suffix == "thumb.png" { return blobCache.thumb(for: id) ?? archive?.loadBlob(id: id, suffix: suffix) }
+        return blobCache[id] ?? archive?.loadBlob(id: id, suffix: suffix)
     }
 
     // MARK: Panel and paste
@@ -169,11 +187,13 @@ final class ClipboardController {
         saveWork?.cancel()
         store.clearAll()
         try? archive?.deleteAll()
+        blobCache.removeAll()
     }
 
     func willTerminate() {
         saveWork?.cancel()
         if settings.settings.clearOnQuit { store.clearAll(); try? archive?.deleteAll() }
         else if !archiveUnavailable { try? archive?.saveIndex(store.clips) }
+        blobCache.removeAll()
     }
 }
