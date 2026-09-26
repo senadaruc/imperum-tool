@@ -133,13 +133,16 @@ final class CopyStackPanel {
             case "c": return NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
             case "x": return NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
             case "a": return NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
-            default: break
-            }
             // Swallow the shortcuts the app's main menu would otherwise act
             // on while this panel is key, so it can never quit, open
             // Settings, or minimize/close a window out from under the user.
-            switch e.keyCode {
-            case 12, 43, 29, 13: return true // ⌘Q, ⌘, (comma), ⌘0, ⌘W
+            // Matched by character, not key code: on AZERTY and other
+            // non-QWERTY layouts the physical key for ⌘Q (key code 12) types
+            // a different character, so a key-code match let ⌘Q fall
+            // through and quit the app. "0" is safe here — it never reaches
+            // this switch for a digit paste, since that's handled by the
+            // (1...9) check above.
+            case "q", ",", "0", "w": return true // ⌘Q, ⌘, (comma), ⌘0, ⌘W
             default: break
             }
         }
