@@ -79,9 +79,17 @@ public enum ClipCapture {
                                            title: norm, payload: .text(norm)), blobData: nil)
         }
         guard let text = pb.string(), let kind = ClipClassifier.classifyText(text) else { return nil }
-        if kind == .color, let norm = ClipClassifier.normalizedColorHex(text) {
-            return CapturedClip(clip: Clip(kind: .color, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
-                                           title: norm, payload: .text(norm)), blobData: nil)
+        if kind == .color {
+            // Some functional colour strings (hsl/hsla, space-separated rgb)
+            // match the classifier's colour regex but aren't normalisable to
+            // hex; those must not surface as `.color` clips with a non-hex
+            // payload, so they fall back to a plain `.text` clip.
+            if let norm = ClipClassifier.normalizedColorHex(text) {
+                return CapturedClip(clip: Clip(kind: .color, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
+                                               title: norm, payload: .text(norm)), blobData: nil)
+            }
+            return CapturedClip(clip: Clip(kind: .text, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
+                                           title: ClipClassifier.title(forText: text), payload: .text(text)), blobData: nil)
         }
         return CapturedClip(clip: Clip(kind: kind, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
                                        title: ClipClassifier.title(forText: text), payload: .text(text)), blobData: nil)

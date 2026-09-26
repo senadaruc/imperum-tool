@@ -9,10 +9,13 @@ private struct FakePasteboard: PasteboardReading {
     var image: PasteboardImage? = nil
     var color: String? = nil
     var text: String? = nil
-    func fileURLs() -> [URL] { files }
-    func imagePNG() -> PasteboardImage? { image }
-    func colorHex() -> String? { color }
-    func string() -> String? { text }
+    /// When true, every read method fails the test: proves capture vetoes
+    /// BEFORE touching any content, not just that it discards what it read.
+    var failOnRead = false
+    func fileURLs() -> [URL] { if failOnRead { XCTFail("content read on a vetoed change") }; return files }
+    func imagePNG() -> PasteboardImage? { if failOnRead { XCTFail("content read on a vetoed change") }; return image }
+    func colorHex() -> String? { if failOnRead { XCTFail("content read on a vetoed change") }; return color }
+    func string() -> String? { if failOnRead { XCTFail("content read on a vetoed change") }; return text }
 }
 
 private func ctx(excluded: [String] = [], paused: Bool = false, own: Int? = nil, front: String? = "com.apple.Notes") -> CaptureContext {
@@ -82,12 +85,27 @@ final class ClipCaptureTests: XCTestCase {
         XCTAssertEqual(c.clip.payload, .text("#FF0080"))
     }
 
+    func testUnnormalisableColorFunctionFallsBackToText() {
+        let c = ClipCapture.capture(from: FakePasteboard(text: "hsl(330, 100%, 50%)"), context: ctx())!
+        XCTAssertEqual(c.clip.kind, .text)
+        XCTAssertEqual(c.clip.payload, .text("hsl(330, 100%, 50%)"))
+        XCTAssertEqual(c.clip.title, "hsl(330, 100%, 50%)")
+    }
+
     func testEmptyPasteboardOrWhitespaceIsNil() {
         XCTAssertNil(ClipCapture.capture(from: FakePasteboard(text: nil), context: ctx()))
         XCTAssertNil(ClipCapture.capture(from: FakePasteboard(text: "   "), context: ctx()))
     }
 
     func testVetoedChangeIsNil() {
-        XCTAssertNil(ClipCapture.capture(from: FakePasteboard(types: ["org.nspasteboard.ConcealedType"], text: "secret"), context: ctx()))
+        XCTAssertNil(ClipCapture.capture(
+            from: FakePasteboard(types: ["org.nspasteboard.ConcealedType"], text: "secret", failOnRead: true),
+            context: ctx()))
+        XCTAssertNil(ClipCapture.capture(
+            from: FakePasteboard(text: "secret", failOnRead: true),
+            context: ctx(excluded: ["com.apple.Notes"])))
+        XCTAssertNil(ClipCapture.capture(
+            from: FakePasteboard(text: "secret", failOnRead: true),
+            context: ctx(paused: true)))
     }
 }
