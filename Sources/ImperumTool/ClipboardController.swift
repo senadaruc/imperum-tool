@@ -120,6 +120,9 @@ final class ClipboardController {
 
     private func startPolling() {
         guard pollTimer == nil else { return }
+        // A copy made while history was off (master switch disabled) must
+        // not be captured retroactively the moment it's turned back on.
+        lastChangeCount = reader.changeCount
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in self?.poll() }
     }
     private func stopPolling() { pollTimer?.invalidate(); pollTimer = nil }
