@@ -1,0 +1,194 @@
+import CopyStackKit
+import Darwin
+import Foundation
+
+/// Result of one `TTYSession.poll` call.
+enum PollResult {
+    case bytes([UInt8])
+    case resize
+    case timeout
+    case eof
+}
+
+/// Owns a controlling-terminal (`/dev/tty`) session for the interactive
+/// picker: raw mode, the alternate screen, window-size queries, and signal
+/// handling. Never touches stdout, so the process can still be piped
+/// (`copystack | cat`) while drawing the UI on the tty.
+final class TTYSession {
+    private let fd: Int32
+    private var savedTermios = termios()
+    /// Self-pipe: SIGWINCH's handler (async-signal-safe) writes one byte here;
+    /// `poll` includes the read end in its `poll(2)` set so a resize wakes it
+    /// promptly without racing a `read` on the tty itself.
+    private static var resizePipe: (read: Int32, write: Int32) = (-1, -1)
+
+    /// Guards `restore()`'s body so it only runs once, including when called
+    /// from a signal handler racing the normal exit path. `sig_atomic_t` is
+    /// the only type POSIX guarantees is safe to read/write from a signal
+    /// handler without a lock.
+    private static var restored: sig_atomic_t = 0
+    private static var restoreFD: Int32 = -1
+    private static var restoreTermios = termios()
+
+    /// Thrown by `init()` when `/dev/tty` cannot be opened (no controlling
+    /// terminal, e.g. running under a non-interactive harness).
+    struct NoTerminalError: Error {}
+
+    init() throws {
+        let opened = open("/dev/tty", O_RDWR)
+        guard opened >= 0 else {
+            throw NoTerminalError()
+        }
+        fd = opened
+
+        var pipeFDs: [Int32] = [0, 0]
+        if TTYSession.resizePipe.read < 0 {
+            pipeFDs.withUnsafeMutableBufferPointer { buf in
+                _ = pipe(buf.baseAddress)
+            }
+            // Non-blocking write end: the SIGWINCH handler must never block.
+            let flags = fcntl(pipeFDs[1], F_GETFL, 0)
+            _ = fcntl(pipeFDs[1], F_SETFL, flags | O_NONBLOCK)
+            TTYSession.resizePipe = (pipeFDs[0], pipeFDs[1])
+        }
+
+        installSignalHandlers()
+        atexit { TTYSession.restore() }
+    }
+
+    // MARK: - Raw mode / alternate screen
+
+    func enterRawMode() {
+        var raw = termios()
+        tcgetattr(fd, &raw)
+        savedTermios = raw
+        TTYSession.restoreFD = fd
+        TTYSession.restoreTermios = raw
+
+        raw.c_lflag &= ~UInt(ICANON | ECHO | ISIG | IEXTEN)
+        raw.c_iflag &= ~UInt(IXON | ICRNL)
+        raw.c_oflag &= ~UInt(OPOST)
+        withUnsafeMutableBytes(of: &raw.c_cc) { ptr in
+            ptr[Int(VMIN)] = 1
+            ptr[Int(VTIME)] = 0
+        }
+        tcsetattr(fd, TCSANOW, &raw)
+
+        write("\u{1b}[?1049h") // alternate screen
+        write("\u{1b}[?25l")   // hide cursor
+        write("\u{1b}[?2004h") // bracketed paste on
+    }
+
+    func setTitle(_ title: String) {
+        write("\u{1b}]2;\(title)\u{07}")
+    }
+
+    /// Restores the terminal to its pre-raw-mode state: idempotent, and safe
+    /// to call from a signal handler (its body only touches already-captured
+    /// fd/termios values and makes async-signal-safe syscalls).
+    func restore() {
+        TTYSession.restore()
+    }
+
+    /// Idempotent; safe to call from a signal handler. A signal handler
+    /// always preempts and runs to completion on the same thread it
+    /// interrupted, so a plain test-and-set on `restored` (rather than a
+    /// real atomic/lock) is enough to make a concurrent second call from the
+    /// normal exit path and a signal handler mutually exclusive.
+    fileprivate static func restore() {
+        guard restored == 0 else { return }
+        restored = 1
+        guard restoreFD >= 0 else { return }
+        let bytes: [UInt8] = Array("\u{1b}[?2004l\u{1b}[?25h\u{1b}[?1049l".utf8)
+        bytes.withUnsafeBufferPointer { buf in
+            _ = Darwin.write(restoreFD, buf.baseAddress, buf.count)
+        }
+        var t = restoreTermios
+        tcsetattr(restoreFD, TCSANOW, &t)
+    }
+
+    // MARK: - Size
+
+    var size: TerminalSize {
+        var ws = winsize()
+        if ioctl(fd, UInt(TIOCGWINSZ), &ws) == 0, ws.ws_col > 0, ws.ws_row > 0 {
+            return TerminalSize(cols: Int(ws.ws_col), rows: Int(ws.ws_row))
+        }
+        return TerminalSize(cols: 80, rows: 24)
+    }
+
+    // MARK: - I/O
+
+    func write(_ s: String) {
+        let bytes = Array(s.utf8)
+        bytes.withUnsafeBufferPointer { buf in
+            var offset = 0
+            while offset < buf.count {
+                let n = Darwin.write(fd, buf.baseAddress! + offset, buf.count - offset)
+                if n <= 0 { break }
+                offset += n
+            }
+        }
+    }
+
+    /// Waits up to `timeoutMs` for input, a resize, or EOF on the tty.
+    ///
+    /// Uses `select(2)` rather than `poll(2)`: verified independently (a
+    /// minimal standalone repro, outside this class entirely) that on this
+    /// macOS build `poll()` spuriously reports `POLLNVAL` on the very first
+    /// call for a `/dev/tty` fd obtained via `open()`, even though the fd is
+    /// perfectly valid — `fcntl()` on it succeeds, and `select()` on the
+    /// exact same fd blocks and times out correctly. Since `poll()` returns
+    /// immediately instead of honoring `timeoutMs`, using it here would spin
+    /// the caller's event loop at 100% CPU forever instead of ever waiting.
+    func poll(timeoutMs: Int32) -> PollResult {
+        let resizeReadFD = TTYSession.resizePipe.read
+        var readSet = fd_set()
+        withUnsafeMutablePointer(to: &readSet) { fdSetPointer in
+            __darwin_fd_set(fd, fdSetPointer)
+            __darwin_fd_set(resizeReadFD, fdSetPointer)
+        }
+        var tv = timeval(tv_sec: Int(timeoutMs / 1000), tv_usec: Int32((timeoutMs % 1000) * 1000))
+        let maxFD = max(fd, resizeReadFD)
+        let n = select(maxFD + 1, &readSet, nil, nil, &tv)
+        guard n > 0 else { return .timeout }
+
+        if __darwin_fd_isset(resizeReadFD, &readSet) != 0 {
+            var drain = [UInt8](repeating: 0, count: 64)
+            _ = drain.withUnsafeMutableBytes { buf in
+                Darwin.read(resizeReadFD, buf.baseAddress, buf.count)
+            }
+            return .resize
+        }
+
+        if __darwin_fd_isset(fd, &readSet) != 0 {
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            let bytesRead = buffer.withUnsafeMutableBytes { buf in
+                Darwin.read(fd, buf.baseAddress, buf.count)
+            }
+            if bytesRead <= 0 {
+                return .eof
+            }
+            return .bytes(Array(buffer.prefix(bytesRead)))
+        }
+        return .timeout
+    }
+
+    // MARK: - Signals
+
+    private func installSignalHandlers() {
+        for sig in [SIGTERM, SIGHUP, SIGQUIT, SIGINT] {
+            signal(sig, { signalNumber in
+                TTYSession.restore()
+                _exit(128 + signalNumber)
+            })
+        }
+        signal(SIGTSTP, SIG_IGN)
+        signal(SIGWINCH, { _ in
+            let byte: [UInt8] = [0]
+            byte.withUnsafeBufferPointer { buf in
+                _ = Darwin.write(TTYSession.resizePipe.write, buf.baseAddress, 1)
+            }
+        })
+    }
+}
