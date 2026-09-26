@@ -40,10 +40,17 @@ final class PickSession {
     /// (fallback, cancel, or a completed/timed-out paste-back), so the owner
     /// can drop its reference.
     private let onFinished: () -> Void
+    /// Called exactly once, from `finish()`, after any host window close
+    /// this session did: the owner closes the picker's socket connection
+    /// and reaps its process if it outlives the window (`pickerPID` is the
+    /// pid this session's own `hello` reported; nil if none arrived).
+    private let onTeardown: (_ token: String, _ pickerPID: pid_t?) -> Void
 
     private(set) var handle: HostHandle?
     private(set) var connected = false
     private(set) var pending: Clip?
+    /// From this session's own `hello` (never another session's).
+    private(set) var pickerPID: pid_t?
 
     private var connectTimeoutWork: DispatchWorkItem?
     private var focusWait = FocusWait()
@@ -53,7 +60,8 @@ final class PickSession {
     init(originPID: pid_t, originWindow: AXUIElement?, host: TerminalHost, hostApp: TerminalApp,
          copystackPath: String, commitPasted: @escaping (Clip) -> Void,
          isEnabled: @escaping () -> Bool, lookupClip: @escaping (UUID) -> Clip?,
-         onFallback: @escaping () -> Void, onFinished: @escaping () -> Void) {
+         onFallback: @escaping () -> Void, onFinished: @escaping () -> Void,
+         onTeardown: @escaping (_ token: String, _ pickerPID: pid_t?) -> Void) {
         self.token = Self.randomToken()
         self.originPID = originPID
         self.originWindow = originWindow
@@ -65,6 +73,7 @@ final class PickSession {
         self.lookupClip = lookupClip
         self.onFallback = onFallback
         self.onFinished = onFinished
+        self.onTeardown = onTeardown
     }
 
     func start() {
@@ -90,10 +99,12 @@ final class PickSession {
         }
     }
 
-    /// A `hello` carrying this session's token arrived over the socket.
-    func onConnected() {
+    /// A `hello` carrying this session's token arrived over the socket,
+    /// with the pid the picker reported (nil from an older picker).
+    func onConnected(pid: pid_t?) {
         guard !finished else { return }
         connected = true
+        if let pid { pickerPID = pid }
         connectTimeoutWork?.cancel()
         connectTimeoutWork = nil
     }
@@ -140,13 +151,16 @@ final class PickSession {
         finish()
     }
 
-    /// Closes the host's window through whatever mechanism it reported
-    /// (`HostHandle`'s `windowID`/`newInstance`), then falls back to finding
-    /// it by its picker title over AX and pressing its close button — a
-    /// safety net for a handle that reported neither, so a window is never
-    /// left orphaned behind this session.
+    /// Closes the host's window through the one mechanism the host has for
+    /// it (`HostCommand.closeStrategy`). Only when the host has none does it
+    /// find the window by its picker title over AX and press its close
+    /// button. Never both: on Ghostty the AX press raises a "Close Window?"
+    /// sheet, and an AppleScript `close window` landing while that sheet is
+    /// up removes the window but leaves its surface, pty and picker process
+    /// running. `finish()`'s teardown (connection close, then SIGHUP) is the
+    /// host-independent safety net behind this.
     private func closeHostWindow(_ handle: HostHandle) {
-        host.close(handle)
+        guard host.close(handle) == .accessibility else { return }
         guard let window = AXWindow.find(pid: handle.hostPID, titleContains: HostCommand.windowTitle(session: token)) else { return }
         AXWindow.pressClose(window)
     }
@@ -220,6 +234,7 @@ final class PickSession {
         finished = true
         focusTimer?.invalidate(); focusTimer = nil
         connectTimeoutWork?.cancel(); connectTimeoutWork = nil
+        onTeardown(token, pickerPID)
         onFinished()
     }
 

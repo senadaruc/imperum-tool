@@ -358,4 +358,53 @@ final class HostCommandTests: XCTestCase {
         XCTAssertEqual(HostCommand.closeScript(for: .iterm2, bundleID: "com.googlecode.iterm2", windowID: "123"),
                        "tell application id \"com.googlecode.iterm2\" to close (first window whose id is 123)")
     }
+
+    // MARK: closeStrategy
+
+    /// Ghostty with an AppleScript window id closes ONLY via its own `close
+    /// window` command: never by pressing the AX close button, which shows
+    /// Ghostty's "Close Window?" sheet and (if the AppleScript close then
+    /// lands) leaves the surface's pty and picker process alive.
+    func testCloseStrategyGhosttyWithWindowIDIsAppleScriptOnly() {
+        XCTAssertEqual(HostCommand.closeStrategy(for: .ghostty, bundleID: "com.mitchellh.ghostty", windowID: "tab-group-1",
+                                                 launchedNewInstance: false, cmuxCLIAvailable: false),
+                       .appleScript(HostCommand.closeScript(for: .ghostty, bundleID: "com.mitchellh.ghostty", windowID: "tab-group-1")!))
+    }
+
+    func testCloseStrategyNewInstanceTerminates() {
+        XCTAssertEqual(HostCommand.closeStrategy(for: .ghostty, bundleID: "com.mitchellh.ghostty", windowID: nil,
+                                                 launchedNewInstance: true, cmuxCLIAvailable: false), .terminateInstance)
+        XCTAssertEqual(HostCommand.closeStrategy(for: .kitty, bundleID: "net.kovidgoyal.kitty", windowID: nil,
+                                                 launchedNewInstance: true, cmuxCLIAvailable: false), .terminateInstance)
+    }
+
+    func testCloseStrategyCmux() {
+        XCTAssertEqual(HostCommand.closeStrategy(for: .cmux, bundleID: "com.cmuxterm.app", windowID: "W1",
+                                                 launchedNewInstance: false, cmuxCLIAvailable: true), .cmuxCLI(windowID: "W1"))
+        XCTAssertEqual(HostCommand.closeStrategy(for: .cmux, bundleID: "com.cmuxterm.app", windowID: "W1",
+                                                 launchedNewInstance: false, cmuxCLIAvailable: false), .accessibility)
+    }
+
+    func testCloseStrategyFallsBackToAccessibilityWithoutAHostMechanism() {
+        XCTAssertEqual(HostCommand.closeStrategy(for: .ghostty, bundleID: "com.mitchellh.ghostty", windowID: nil,
+                                                 launchedNewInstance: false, cmuxCLIAvailable: false), .accessibility)
+        XCTAssertEqual(HostCommand.closeStrategy(for: .terminal, bundleID: "com.apple.Terminal", windowID: "x1",
+                                                 launchedNewInstance: false, cmuxCLIAvailable: false), .accessibility)
+    }
+
+    func testCloseStrategyTerminalAndIterm2UseAppleScript() {
+        XCTAssertEqual(HostCommand.closeStrategy(for: .terminal, bundleID: "com.apple.Terminal", windowID: "3",
+                                                 launchedNewInstance: false, cmuxCLIAvailable: false),
+                       .appleScript(HostCommand.closeScript(for: .terminal, bundleID: "com.apple.Terminal", windowID: "3")!))
+    }
+
+    // MARK: isPickerExecutable
+
+    func testIsPickerExecutable() {
+        XCTAssertTrue(HostCommand.isPickerExecutable(path: "/Applications/Imperum Tool.app/Contents/MacOS/copystack"))
+        XCTAssertFalse(HostCommand.isPickerExecutable(path: "/bin/sleep"))
+        XCTAssertFalse(HostCommand.isPickerExecutable(path: "/tmp/copystack-evil/bash"))
+        XCTAssertFalse(HostCommand.isPickerExecutable(path: "/tmp/notcopystack"))
+        XCTAssertFalse(HostCommand.isPickerExecutable(path: ""))
+    }
 }

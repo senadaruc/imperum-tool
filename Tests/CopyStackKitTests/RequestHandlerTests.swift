@@ -81,6 +81,36 @@ final class RequestHandlerTests: XCTestCase {
         XCTAssertNil(handler.session(for: 1))
     }
 
+    func testHelloRecordsPickerPIDAndSessionConnection() {
+        let (handler, _) = makeHandler(clips: [])
+        _ = handler.handle(.hello(session: "sess-1", pid: 4242), connection: 3)
+        XCTAssertEqual(handler.pickerPID(for: 3), 4242)
+        XCTAssertEqual(handler.connection(for: "sess-1"), 3)
+        XCTAssertNil(handler.connection(for: "other"))
+    }
+
+    func testHelloWithoutPIDRecordsNoPID() {
+        let (handler, _) = makeHandler(clips: [])
+        _ = handler.handle(.hello(session: "sess-1"), connection: 3)
+        XCTAssertNil(handler.pickerPID(for: 3))
+    }
+
+    /// A pid is only meaningful alongside a session: a standalone `copystack`
+    /// (no session) is never a candidate for signalling.
+    func testHelloPIDWithoutSessionIsIgnored() {
+        let (handler, _) = makeHandler(clips: [])
+        _ = handler.handle(.hello(session: nil, pid: 4242), connection: 3)
+        XCTAssertNil(handler.pickerPID(for: 3))
+    }
+
+    func testConnectionClosedForgetsPIDAndSessionConnection() {
+        let (handler, _) = makeHandler(clips: [])
+        _ = handler.handle(.hello(session: "sess-1", pid: 4242), connection: 3)
+        handler.connectionClosed(3)
+        XCTAssertNil(handler.pickerPID(for: 3))
+        XCTAssertNil(handler.connection(for: "sess-1"))
+    }
+
     func testHelloWorksEvenWhenDisabled() {
         let (handler, _) = makeHandler(clips: [], enabled: false)
         let response = handler.handle(.hello(session: "sess-1"), connection: 1)

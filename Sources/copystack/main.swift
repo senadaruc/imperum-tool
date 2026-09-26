@@ -83,7 +83,10 @@ func sessionForHello() -> String? {
 }
 
 do {
-    let hello = try client.send(.hello(session: sessionForHello()))
+    // A session picker also reports its pid, so the app can end it if its
+    // host window is closed without the host terminating it.
+    let session = sessionForHello()
+    let hello = try client.send(.hello(session: session, pid: session == nil ? nil : getpid()))
     if case .error(.disabled, _) = hello {
         fail(notRunningMessage, exitCode: 2)
     }
@@ -311,7 +314,7 @@ func handleCopy(id: UUID) {
 
 while true {
     let timeoutMs: Int32 = parser.hasPendingEscape ? 30 : 250
-    switch tty.poll(timeoutMs: timeoutMs) {
+    switch tty.poll(timeoutMs: timeoutMs, watchFD: client.fileDescriptor) {
     case .bytes(let bytes):
         let keys = parser.feed(bytes)
         for key in keys {
@@ -329,5 +332,15 @@ while true {
         }
     case .eof:
         exitInteractive(1)
+    case .watchedReadable:
+        // The app never sends unsolicited data, so the socket turning
+        // readable while idle means it closed the connection (quit, or ended
+        // this session's picker on purpose). Re-check without blocking, then
+        // leave: quietly for a session picker, whose window is going away.
+        guard client.isPeerClosed() else { break }
+        if case .pick = args.mode { exitInteractive(2) }
+        tty.restore()
+        client.close()
+        fail(notRunningMessage, exitCode: 2)
     }
 }

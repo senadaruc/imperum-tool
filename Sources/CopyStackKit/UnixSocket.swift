@@ -272,6 +272,17 @@ public final class SocketServer {
         }
     }
 
+    /// Ends one live connection from the server side (`shutdown`, not
+    /// `close`: the connection's own thread still owns the fd, sees EOF,
+    /// closes it and delivers `onClose` as usual). The peer sees EOF. No-op
+    /// for an id that isn't open (already closed, or never existed).
+    public func closeConnection(_ id: ConnectionID) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard let fd = openConnectionFDs[id] else { return }
+        shutdown(fd, SHUT_RDWR)
+    }
+
     // MARK: - Accept loop
 
     private func acceptLoop(listenerFD: Int32) {
@@ -533,6 +544,30 @@ public final class SocketClient {
             if let line = lines.first {
                 return try ProtocolCodec.decodeResponse(line)
             }
+        }
+    }
+
+    /// The connected socket's fd, so a caller can include it in its own
+    /// `select()` set and notice the server closing the connection while it
+    /// is otherwise idle (see `isPeerClosed`). Never read or write it
+    /// directly: `send` owns the framing.
+    public var fileDescriptor: Int32 { fd }
+
+    /// Non-blocking check for the server having closed this connection (or
+    /// it being otherwise unusable). The protocol never sends unsolicited
+    /// data, so between requests any readable state is EOF or garbage; both
+    /// mean the connection is gone. Returns false while it's merely idle.
+    public func isPeerClosed() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return true }
+        var byte: UInt8 = 0
+        while true {
+            let n = recv(fd, &byte, 1, MSG_PEEK | MSG_DONTWAIT)
+            if n > 0 { return true }          // unsolicited data: protocol violation
+            if n == 0 { return true }         // orderly EOF
+            if errno == EINTR { continue }
+            return !(errno == EAGAIN || errno == EWOULDBLOCK)
         }
     }
 

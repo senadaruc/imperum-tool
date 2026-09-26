@@ -42,6 +42,9 @@ final class ClipboardController {
     /// SwiftUI panel is the active UI instead). Set by `openCopyStack`,
     /// cleared via `PickSession`'s `onFinished`.
     private var session: PickSession?
+    /// Tokens of recently ended pick sessions (bounded), so a picker that
+    /// connects after its session ended is ended too. Main only.
+    private var retiredPickTokens: [String] = []
     private var saveWork: DispatchWorkItem?
     /// Encoding + sealing the index can take ~200ms once it grows large;
     /// running that on main would stall the event tap's run loop (every
@@ -100,9 +103,16 @@ final class ClipboardController {
             guard let self, let session = self.session, let sessionID, session.token == sessionID else { return }
             session.onClosed()
         }
-        copyStackServer.onSessionConnected = { [weak self] sessionID in
-            guard let self, let session = self.session, session.token == sessionID else { return }
-            session.onConnected()
+        copyStackServer.onSessionConnected = { [weak self] sessionID, pid in
+            guard let self else { return }
+            if let session = self.session, session.token == sessionID {
+                session.onConnected(pid: pid)
+            } else if self.retiredPickTokens.contains(sessionID) {
+                // A picker for a session that already ended (e.g. its window
+                // arrived after a cancel, or it connected late): it has no
+                // one to serve, so end it the same way a teardown does.
+                self.retirePicker(token: sessionID, pid: pid)
+            }
         }
         settings.$settings.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] s in self?.apply(s) }.store(in: &bag)
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
@@ -234,9 +244,24 @@ final class ClipboardController {
             isEnabled: { [weak self] in self?.settings.settings.enabled ?? false },
             lookupClip: { [weak self] id in self?.store.clip(id: id) },
             onFallback: { [weak self] in self?.showPanel(anchor: anchor) },
-            onFinished: { [weak self] in self?.session = nil })
+            onFinished: { [weak self] in self?.session = nil },
+            onTeardown: { [weak self] token, pid in self?.retirePicker(token: token, pid: pid) })
         session = newSession
         newSession.start()
+    }
+
+    /// Session-teardown safety net, independent of the host: close the
+    /// picker's connection (it exits on socket EOF) and, if its process is
+    /// still alive a second later, signal it (see `PickerReaper`). The token
+    /// is remembered so a picker that only says hello after its session
+    /// ended is ended too.
+    private func retirePicker(token: String, pid: pid_t?) {
+        if !retiredPickTokens.contains(token) {
+            retiredPickTokens.append(token)
+            if retiredPickTokens.count > 16 { retiredPickTokens.removeFirst() }
+        }
+        copyStackServer.closeSession(token)
+        if let pid { PickerReaper.reap(pid: pid) }
     }
 
     private func paste(_ clip: Clip) {

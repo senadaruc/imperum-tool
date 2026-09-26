@@ -41,6 +41,8 @@ final class CopyStackServer {
     private let commitPasted: (Clip) -> Void
 
     private var socketServer: SocketServer?
+    /// The running server's `Generation`, for `closeSession` (main only).
+    private var currentGeneration: Generation?
 
     /// `ClipboardController` sets this to deliver a session paste to the
     /// live `PickSession` it identifies, returning whether one was found.
@@ -51,8 +53,10 @@ final class CopyStackServer {
     /// `ClipboardController` uses this for EOF.
     var onConnectionClosed: ((ConnectionID, SessionID?) -> Void)?
     /// `ClipboardController` uses this to know a picker's `hello{session}`
-    /// arrived, i.e. the picker connected over the socket. Called on main.
-    var onSessionConnected: ((SessionID) -> Void)?
+    /// arrived, i.e. the picker connected over the socket, along with the
+    /// pid it reported (nil from an older picker). Called on main, after the
+    /// session is bound to its connection, so `closeSession` already works.
+    var onSessionConnected: ((SessionID, pid_t?) -> Void)?
 
     init(store: ClipStore, settings: ClipboardSettingsStore, paster: ClipPaster, commitPasted: @escaping (Clip) -> Void) {
         self.store = store
@@ -107,6 +111,7 @@ final class CopyStackServer {
         do {
             try server.start()
             socketServer = server
+            currentGeneration = generation
         } catch {
             NSLog("Imperum Tool copystack: failed to start socket server: \(error)")
         }
@@ -115,6 +120,18 @@ final class CopyStackServer {
     func stop() {
         socketServer?.stop()
         socketServer = nil
+        currentGeneration = nil
+    }
+
+    /// Closes the connection bound to `session` by its picker's `hello`, if
+    /// one is open. A picker blocked in its input loop sees EOF on the
+    /// socket and exits (restoring its terminal) — the first line of the
+    /// safety net for a host window closed without its process exiting.
+    /// Main thread only.
+    func closeSession(_ session: SessionID) {
+        guard let generation = currentGeneration, let server = socketServer,
+              let connection = generation.handler.connection(for: session) else { return }
+        server.closeConnection(connection)
     }
 
     // MARK: - Socket callbacks (arrive on the server's own threads)
@@ -126,10 +143,10 @@ final class CopyStackServer {
                 return try? ProtocolCodec.encode(.error(code: code, message: "malformed request"))
             case .success(let request):
                 generation.currentConnection = connection.id
-                if case .hello(let session) = request, let session {
-                    onSessionConnected?(session)
-                }
                 let response = generation.handler.handle(request, connection: connection.id)
+                if case .hello(let session, _) = request, let session {
+                    onSessionConnected?(session, generation.handler.pickerPID(for: connection.id))
+                }
                 return try? ProtocolCodec.encode(response)
             }
         }

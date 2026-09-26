@@ -10,6 +10,29 @@ final class ProtocolTests: XCTestCase {
         try roundTripRequest(.hello(session: nil))
     }
 
+    func testRequestRoundTripHelloWithPID() throws {
+        try roundTripRequest(.hello(session: "abc", pid: 4242))
+        try roundTripRequest(.hello(session: nil, pid: 7))
+    }
+
+    func testHelloEncodesPIDOnlyWhenPresent() throws {
+        let withPID = try JSONSerialization.jsonObject(with: ProtocolCodec.encode(Request.hello(session: "s", pid: 99))) as? [String: Any]
+        XCTAssertEqual(withPID?["pid"] as? Int, 99)
+        let withoutPID = try JSONSerialization.jsonObject(with: ProtocolCodec.encode(Request.hello(session: "s"))) as? [String: Any]
+        XCTAssertNil(withoutPID?["pid"])
+    }
+
+    /// An older picker's hello (no `pid` key) still decodes, with pid nil.
+    func testHelloWithoutPIDDecodesAsNil() {
+        let line = Data(#"{"v":1,"op":"hello","session":"abc"}"#.utf8)
+        XCTAssertEqual(try? ProtocolCodec.decodeRequest(line).get(), .hello(session: "abc", pid: nil))
+    }
+
+    func testHelloWithPIDDecodes() {
+        let line = Data(#"{"v":1,"op":"hello","session":"abc","pid":321}"#.utf8)
+        XCTAssertEqual(try? ProtocolCodec.decodeRequest(line).get(), .hello(session: "abc", pid: 321))
+    }
+
     func testRequestRoundTripList() throws {
         try roundTripRequest(.list)
     }

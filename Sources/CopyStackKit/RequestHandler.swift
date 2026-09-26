@@ -29,6 +29,7 @@ public final class RequestHandler {
     private let previewLimit: Int
 
     private var sessionsByConnection: [ConnectionID: SessionID] = [:]
+    private var pickerPIDsByConnection: [ConnectionID: Int32] = [:]
 
     public init(backend: ClipBackend,
                 isEnabled: @escaping () -> Bool,
@@ -48,14 +49,28 @@ public final class RequestHandler {
         sessionsByConnection[connection]
     }
 
+    /// The pid a session-bound picker reported in its `hello` on this
+    /// connection, if any. Only recorded alongside a session: a standalone
+    /// `copystack` is never a candidate for being signalled by the app.
+    public func pickerPID(for connection: ConnectionID) -> Int32? {
+        pickerPIDsByConnection[connection]
+    }
+
+    /// The connection whose `hello` bound `session`, if it's still open.
+    public func connection(for session: SessionID) -> ConnectionID? {
+        sessionsByConnection.first { $0.value == session }?.key
+    }
+
     public func connectionClosed(_ connection: ConnectionID) {
         sessionsByConnection.removeValue(forKey: connection)
+        pickerPIDsByConnection.removeValue(forKey: connection)
     }
 
     public func handle(_ request: Request, connection: ConnectionID) -> Response {
-        if case .hello(let session) = request {
+        if case .hello(let session, let pid) = request {
             if let session {
                 sessionsByConnection[connection] = session
+                if let pid { pickerPIDsByConnection[connection] = pid }
             }
             return .ok
         }

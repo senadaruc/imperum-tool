@@ -7,7 +7,10 @@ import ImperumCore
 // newline inside an encoded line (the framer/writer owns line separators).
 //
 // Request:  {"v":1,"op":"<op>", ...fields}
-//   hello:  {"v":1,"op":"hello","session":"…"?}
+//   hello:  {"v":1,"op":"hello","session":"…"?,"pid":123?}
+//           (`pid`: the picker's own getpid(), sent by `--pick` pickers so
+//           the app can end one whose host window closed without it; older
+//           pickers omit it.)
 //   list:   {"v":1,"op":"list"}
 //   get/paste/copy/pin/delete: {"v":1,"op":"<op>","id":"<uuid>"}
 //
@@ -118,7 +121,7 @@ public struct ClipSummary: Codable, Equatable, Identifiable {
 }
 
 public enum Request: Codable, Equatable {
-    case hello(session: String?)
+    case hello(session: String?, pid: Int32? = nil)
     case list
     case get(id: UUID)
     case paste(id: UUID)
@@ -127,7 +130,7 @@ public enum Request: Codable, Equatable {
     case delete(id: UUID)
 
     private enum CodingKeys: String, CodingKey {
-        case v, op, id, session
+        case v, op, id, session, pid
     }
 
     private enum Op: String {
@@ -144,7 +147,8 @@ public enum Request: Codable, Equatable {
         }
         switch op {
         case .hello:
-            self = .hello(session: try container.decodeIfPresent(String.self, forKey: .session))
+            self = .hello(session: try container.decodeIfPresent(String.self, forKey: .session),
+                          pid: try container.decodeIfPresent(Int32.self, forKey: .pid))
         case .list:
             self = .list
         case .get:
@@ -164,9 +168,10 @@ public enum Request: Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(CopyStackKit.protocolVersion, forKey: .v)
         switch self {
-        case .hello(let session):
+        case .hello(let session, let pid):
             try container.encode(Op.hello.rawValue, forKey: .op)
             try container.encodeIfPresent(session, forKey: .session)
+            try container.encodeIfPresent(pid, forKey: .pid)
         case .list:
             try container.encode(Op.list.rawValue, forKey: .op)
         case .get(let id):

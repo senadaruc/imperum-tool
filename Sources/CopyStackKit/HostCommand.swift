@@ -215,6 +215,46 @@ public enum HostCommand {
         }
     }
 
+    /// How to close a window `launch` opened, given what the successful
+    /// launch reported back.
+    public enum CloseStrategy: Equatable {
+        /// `open` launched a dedicated instance for the picker: quit it.
+        case terminateInstance
+        /// cmux: its CLI's `close-window --window <id>`.
+        case cmuxCLI(windowID: String)
+        /// The host's own AppleScript close-by-id (`closeScript`).
+        case appleScript(String)
+        /// No host mechanism applies: find the window by title over AX and
+        /// press its close button (last resort only; see below).
+        case accessibility
+    }
+
+    /// Picks exactly one close mechanism. The AX close button is only a
+    /// last resort when the host offers nothing else, never an extra step
+    /// on top of a host mechanism: on Ghostty, pressing it shows a
+    /// "Close Window?" confirmation sheet (the surface has a running
+    /// process), and if the AppleScript `close window` then lands while
+    /// that sheet is up, Ghostty removes the window but never tears down its
+    /// surface, so `login`, the picker and the pty live on indefinitely
+    /// (reproduced live).
+    public static func closeStrategy(for app: TerminalApp, bundleID: String, windowID: String?,
+                                     launchedNewInstance: Bool, cmuxCLIAvailable: Bool) -> CloseStrategy {
+        if launchedNewInstance { return .terminateInstance }
+        guard let windowID else { return .accessibility }
+        if app == .cmux {
+            return cmuxCLIAvailable ? .cmuxCLI(windowID: windowID) : .accessibility
+        }
+        guard let script = closeScript(for: app, bundleID: bundleID, windowID: windowID) else { return .accessibility }
+        return .appleScript(script)
+    }
+
+    /// Whether `path` (from `proc_pidpath`) is a `copystack` executable:
+    /// the guard the app applies before ever signalling a picker pid, so a
+    /// pid reused by some unrelated process is never signalled.
+    public static func isPickerExecutable(path: String) -> Bool {
+        (path as NSString).lastPathComponent == "copystack"
+    }
+
     /// A bundle id must look like a reverse-DNS identifier
     /// (`^[A-Za-z0-9.\-]+$`) before it's trusted to build any AppleScript,
     /// openApp launch, or CLI launch — see the doc comment on `launch`.

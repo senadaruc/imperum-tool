@@ -358,4 +358,54 @@ final class UnixSocketTests: XCTestCase {
 
         wait(for: [closeExpectation], timeout: 1)
     }
+
+    // MARK: - Server-initiated close
+
+    /// `closeConnection` ends one live connection from the server side; the
+    /// client sees EOF (`isPeerClosed`), and `onClose` fires for it.
+    func testCloseConnectionEndsThatConnectionAndClientSeesPeerClosed() throws {
+        let path = makeSocketPath()
+        let connected = expectation(description: "connected")
+        let closed = expectation(description: "closed")
+        var connectionID: SocketServer.ConnectionID = -1
+        let server = makeServer(path: path,
+                                onConnect: { c in connectionID = c.id; connected.fulfill() },
+                                onLine: { _, _ in try? ProtocolCodec.encode(Response.ok) },
+                                onClose: { _ in closed.fulfill() })
+        try server.start()
+        defer { server.stop() }
+
+        let client = try SocketClient.connect(path: path)
+        defer { client.close() }
+        XCTAssertEqual(try client.send(.hello(session: "s", pid: getpid())), .ok)
+        wait(for: [connected], timeout: 2)
+        XCTAssertFalse(client.isPeerClosed())
+
+        server.closeConnection(connectionID)
+        wait(for: [closed], timeout: 2)
+        XCTAssertTrue(client.isPeerClosed())
+        XCTAssertThrowsError(try client.send(.list))
+    }
+
+    func testCloseConnectionUnknownIDIsNoOp() throws {
+        let path = makeSocketPath()
+        let server = makeServer(path: path, onLine: { _, _ in try? ProtocolCodec.encode(Response.ok) })
+        try server.start()
+        defer { server.stop() }
+        let client = try SocketClient.connect(path: path)
+        defer { client.close() }
+        server.closeConnection(9999)
+        XCTAssertEqual(try client.send(.list), .ok)
+        XCTAssertFalse(client.isPeerClosed())
+    }
+
+    func testClientExposesFileDescriptor() throws {
+        let path = makeSocketPath()
+        let server = makeServer(path: path)
+        try server.start()
+        defer { server.stop() }
+        let client = try SocketClient.connect(path: path)
+        defer { client.close() }
+        XCTAssertGreaterThanOrEqual(client.fileDescriptor, 0)
+    }
 }

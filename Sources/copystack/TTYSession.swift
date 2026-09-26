@@ -8,6 +8,9 @@ enum PollResult {
     case resize
     case timeout
     case eof
+    /// The optional watched fd (the app socket) became readable while the
+    /// loop was idle; the caller decides what that means.
+    case watchedReadable
 }
 
 /// Owns a controlling-terminal (`/dev/tty`) session for the interactive
@@ -160,9 +163,13 @@ final class TTYSession {
     /// exact same fd blocks and times out correctly. Since `poll()` returns
     /// immediately instead of honoring `timeoutMs`, using it here would spin
     /// the caller's event loop at 100% CPU forever instead of ever waiting.
-    func poll(timeoutMs: Int32) -> PollResult {
+    ///
+    /// `watchFD`, when given (the picker's app socket), is added to the same
+    /// `select()` set; it being readable is reported as `.watchedReadable`
+    /// (checked after resize, before tty input) without reading from it.
+    func poll(timeoutMs: Int32, watchFD: Int32? = nil) -> PollResult {
         let resizeReadFD = TTYSession.resizePipe.read
-        let maxFD = max(fd, resizeReadFD)
+        let maxFD = max(fd, resizeReadFD, watchFD ?? -1)
 
         var n: Int32
         var readSet = fd_set()
@@ -171,6 +178,7 @@ final class TTYSession {
             withUnsafeMutablePointer(to: &readSet) { fdSetPointer in
                 __darwin_fd_set(fd, fdSetPointer)
                 __darwin_fd_set(resizeReadFD, fdSetPointer)
+                if let watchFD { __darwin_fd_set(watchFD, fdSetPointer) }
             }
             var tv = timeval(tv_sec: Int(timeoutMs / 1000), tv_usec: Int32((timeoutMs % 1000) * 1000))
             n = select(maxFD + 1, &readSet, nil, nil, &tv)
@@ -189,6 +197,10 @@ final class TTYSession {
                 Darwin.read(resizeReadFD, buf.baseAddress, buf.count)
             }
             return .resize
+        }
+
+        if let watchFD, __darwin_fd_isset(watchFD, &readSet) != 0 {
+            return .watchedReadable
         }
 
         if __darwin_fd_isset(fd, &readSet) != 0 {

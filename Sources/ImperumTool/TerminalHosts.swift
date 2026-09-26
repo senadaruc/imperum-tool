@@ -44,7 +44,12 @@ protocol TerminalHost {
     /// `open` always launches those with `createsNewApplicationInstance =
     /// true` specifically so this process only ever hosts the one picker
     /// window and nothing else the user has open in that app.
-    func close(_ handle: HostHandle)
+    ///
+    /// Returns the one mechanism it used (see `HostCommand.closeStrategy`);
+    /// `.accessibility` means the host had none and the caller must close
+    /// the window itself, by title over AX.
+    @discardableResult
+    func close(_ handle: HostHandle) -> HostCommand.CloseStrategy
     /// Finds the window `open` created by its title (polling up to 1.5s
     /// every 30ms, since AX may not see it the instant the host reports
     /// success), raises it, and centres it on the screen under the mouse.
@@ -379,24 +384,28 @@ private final class GenericTerminalHost: TerminalHost {
 
     // MARK: close
 
-    func close(_ handle: HostHandle) {
-        if let newInstance = handle.newInstance {
-            newInstance.terminate()
-            return
-        }
-        guard let windowID = handle.windowID else { return }
-        // cmux's windows don't understand the standard "close" Apple event
-        // (HostCommand.closeScript returns nil for cmux for exactly this
-        // reason), so close it through the CLI's own close-window instead.
-        if app == .cmux, let cli = cmuxCLIPath() {
+    func close(_ handle: HostHandle) -> HostCommand.CloseStrategy {
+        let cli = app == .cmux ? cmuxCLIPath() : nil
+        let strategy = HostCommand.closeStrategy(for: app, bundleID: bundleID, windowID: handle.windowID,
+                                                 launchedNewInstance: handle.newInstance != nil,
+                                                 cmuxCLIAvailable: cli != nil)
+        switch strategy {
+        case .terminateInstance:
+            handle.newInstance?.terminate()
+        case .cmuxCLI(let windowID):
+            // cmux's windows don't understand the standard "close" Apple
+            // event, so close it through the CLI's own close-window instead.
+            guard let cli else { break }
             let env = cmuxEnvironment()
             DispatchQueue.global(qos: .utility).async {
                 _ = Self.runProcess(cli, ["close-window", "--window", windowID], env: env)
             }
-            return
+        case .appleScript(let script):
+            runAppleScript(script) { _ in }
+        case .accessibility:
+            break
         }
-        guard let script = HostCommand.closeScript(for: app, bundleID: bundleID, windowID: windowID) else { return }
-        runAppleScript(script) { _ in }
+        return strategy
     }
 
     // MARK: position
