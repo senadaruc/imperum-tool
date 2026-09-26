@@ -33,8 +33,12 @@ final class TTYSession {
     /// The exact bytes `restore()` writes, as a compile-time literal: no
     /// heap allocation at call time (see `restore()`), so it's safe to run
     /// from a signal handler that may have interrupted the main thread while
-    /// it held malloc's internal lock.
-    private static let restoreSequence: StaticString = "\u{1b}[?2004l\u{1b}[?25h\u{1b}[?1049l"
+    /// it held malloc's internal lock. Leads with `\e[23;0t` (XTWINOPS "pop
+    /// window title from stack"), undoing the `\e[22;0t` push `setTitle`
+    /// does before setting the title via OSC 2 — so a host terminal that
+    /// understands the title stack has its original title back, not just
+    /// whatever OSC 2 string this process happened to set last.
+    private static let restoreSequence: StaticString = "\u{1b}[23;0t\u{1b}[?2004l\u{1b}[?25h\u{1b}[?1049l"
 
     /// Thrown by `init()` when `/dev/tty` cannot be opened (no controlling
     /// terminal, e.g. running under a non-interactive harness).
@@ -91,6 +95,11 @@ final class TTYSession {
     }
 
     func setTitle(_ title: String) {
+        // Push the terminal's current title onto its title stack (XTWINOPS
+        // `\e[22;0t`) before overwriting it via OSC 2, so `restore()`'s
+        // `\e[23;0t` pop can hand the original title back rather than leave
+        // this process's title behind after it exits.
+        write("\u{1b}[22;0t")
         write("\u{1b}]2;\(title)\u{07}")
     }
 
