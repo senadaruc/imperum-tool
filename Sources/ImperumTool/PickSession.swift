@@ -85,7 +85,7 @@ final class PickSession {
             case .failure:
                 guard !self.finished else { return }
                 self.onFallback()
-                self.finish(callFinished: true)
+                self.finish()
             }
         }
     }
@@ -108,7 +108,7 @@ final class PickSession {
     /// or another (Enter, Esc, or the process being killed).
     func onClosed() {
         guard !finished else { return }
-        guard let handle else { return finish(callFinished: true) }
+        guard let handle else { return finish() }
         closeHostWindow(handle)
         startFocusWait()
     }
@@ -122,7 +122,7 @@ final class PickSession {
         if let handle { closeHostWindow(handle) }
         AXWindow.setFrontmost(pid: originPID)
         if let originWindow { AXWindow.raise(originWindow) }
-        finish(callFinished: true)
+        finish()
     }
 
     // MARK: Connect timeout
@@ -137,7 +137,7 @@ final class PickSession {
         guard !finished, !connected else { return }
         if let handle { closeHostWindow(handle) }
         onFallback()
-        finish(callFinished: true)
+        finish()
     }
 
     /// Closes the host's window through whatever mechanism it reported
@@ -196,25 +196,31 @@ final class PickSession {
                     commitPasted(current)
                 }
             }
-            finish(callFinished: true)
+            finish()
         case .timeout:
             focusTimer?.invalidate(); focusTimer = nil
-            if let clip = pending {
+            // Mirrors `.post`: if the master switch was turned off while
+            // this session was open, show no HUD and commit nothing; and
+            // re-read the clip from the store (rather than trust the
+            // possibly-stale `pending` copy) so a pin toggle or delete that
+            // happened while waiting for focus is reflected, and a deleted
+            // clip isn't resurrected by committing a stale copy of it.
+            if let clip = pending, isEnabled(), let current = lookupClip(clip.id) {
                 HUD.shared.show("Copied — press ⌘V to paste", symbol: "doc.on.clipboard")
-                commitPasted(clip)
+                commitPasted(current)
             }
-            finish(callFinished: true)
+            finish()
         }
     }
 
     // MARK: Teardown
 
-    private func finish(callFinished: Bool) {
+    private func finish() {
         guard !finished else { return }
         finished = true
         focusTimer?.invalidate(); focusTimer = nil
         connectTimeoutWork?.cancel(); connectTimeoutWork = nil
-        if callFinished { onFinished() }
+        onFinished()
     }
 
     private static func randomToken() -> String {

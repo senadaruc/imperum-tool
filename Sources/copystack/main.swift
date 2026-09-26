@@ -104,7 +104,11 @@ func printList(_ summaries: [ClipSummary], json: Bool, limit: Int?) {
         }
     } else {
         for (index, summary) in limited.enumerated() {
-            print("\(index + 1)\t\(summary.kind.rawValue)\t\(summary.title)")
+            // `summary.title` is untrusted clipboard content (whatever the
+            // user copied) printed straight to a real terminal's stdout, so
+            // it goes through the same escape-sequence defence as the
+            // picker's own TUI rather than being trusted verbatim.
+            print("\(index + 1)\t\(summary.kind.rawValue)\t\(Sanitize.line(summary.title))")
         }
     }
 }
