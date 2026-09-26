@@ -41,6 +41,25 @@ access; the tab shows the status and a button to grant it.
 
 Design: `docs/superpowers/specs/2026-09-06-tap-gestures-design.md`.
 
+## Copy Stack (clipboard history)
+
+Copy several things, then choose what to paste. **Double-tap ⌘V** (or ⌘⇧V,
+or a palm-rest tap bound to "Show Copy Stack") opens a floating panel over the
+app you are in: search as you type, ←→ for category (Text · Links · Emails ·
+Colors · Images · Videos · Files), ↑↓ to move, ↩ or ⌘1–9 to paste, ⌘P to pin,
+⌫ to delete, esc to close. Return pastes into the app you were in — files as
+files, images as images.
+
+Privacy: nothing leaves this Mac. Anything a password manager marks concealed
+or transient is never captured, apps on the exclusion list are ignored, and
+the history lives in `~/Library/Application Support/Imperum Tool/Clipboard/`
+encrypted with AES-GCM under a key in your login Keychain. Website icons for
+links are opt-in (they contact the link's domain). "Clear stack when Imperum
+Tool quits" gives session-only memory.
+
+The double-tap needs Accessibility (to hold a ⌘V for ~300 ms and decide if a
+second tap follows); the ⌘⇧V hotkey does not.
+
 ## Why no per-app GPU %
 
 Apple exposes **no per-app GPU% on Apple Silicon** — even `powermetrics`

@@ -1,0 +1,170 @@
+// Sources/ImperumTool/ClipboardController.swift
+import AppKit
+import Combine
+import ImperumCore
+
+/// Owns the whole clipboard subsystem and reacts to settings live.
+///
+/// Main-thread invariant: every call into `ClipStore`, `ClipArchive`, `CmdVTap`,
+/// the panel and the status item happens on the main thread. The poll `Timer`
+/// runs on the main run loop, the settings sink receives on `DispatchQueue.main`,
+/// and `tap.onOpenPanel` is already dispatched to main by the tap.
+final class ClipboardController {
+    private let settings: ClipboardSettingsStore
+    private let store = ClipStore()
+    private let keyProvider = KeychainArchiveKey()
+    private var archive: ClipArchive?
+    private let reader = NSPasteboardReader()
+    private let tap = CmdVTap()
+    private lazy var paster = ClipPaster(archive: { [weak self] in self?.archive })
+    private lazy var model = CopyStackModel(store: store, settings: settings, archive: { [weak self] in self?.archive })
+    private lazy var panel = CopyStackPanel(model: model)
+    private lazy var statusItem = ClipboardStatusItem(store: store, settings: settings)
+    private var pollTimer: Timer?
+    private var saveWork: DispatchWorkItem?
+    private var lastChangeCount = NSPasteboard.general.changeCount
+    private var bag = Set<AnyCancellable>()
+
+    /// True when the archive could not be loaded for a reason other than
+    /// corruption (e.g. a Keychain error or an unreadable file). While set,
+    /// saves are skipped so the debounced save can never overwrite an intact
+    /// on-disk archive with an empty in-memory index.
+    private var archiveUnavailable = false
+
+    /// Last settings values `apply(_:)` actually acted on, so repeated calls
+    /// (the settings sink fires on every edit) don't restart the tap or wipe
+    /// the archive redundantly.
+    private var lastApplied: (enabled: Bool, trigger: ClipboardTrigger, doubleTapMs: Int, clearOnQuit: Bool)?
+
+    static let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Imperum Tool/Clipboard", isDirectory: true)
+
+    init(settings: ClipboardSettingsStore) {
+        self.settings = settings
+        archive = ClipArchive(directory: Self.directory, keyProvider: keyProvider)
+        load()
+        store.onChange = { [weak self] in self?.scheduleSave() }
+        store.onBlobsDropped = { [weak self] ids in self?.archive?.deleteBlobs(ids) }
+        model.onPaste = { [weak self] clip in self?.paste(clip) }
+        model.onClose = { [weak self] in self?.panel.hide() }
+        tap.onOpenPanel = { [weak self] in self?.showPanel(anchor: .mouseScreen) }
+        statusItem.onShow = { [weak self] in self?.showPanel(anchor: .mainScreen) }
+        statusItem.onClear = { [weak self] in self?.confirmClear() }
+        statusItem.onSettings = { SettingsTabs.initialTab = "clipboard"; NSApp.sendAction(#selector(AppController.showSettings), to: nil, from: nil) }
+        ActionRunner.showCopyStack = { [weak self] in self?.showPanel(anchor: .mainScreen) }
+        settings.$settings.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] s in self?.apply(s) }.store(in: &bag)
+    }
+
+    // MARK: Settings → behaviour
+
+    private func apply(_ s: ClipboardSettings) {
+        statusItem.setVisible(s.enabled && s.showBadge)
+        tap.window = s.doubleTapWindow
+
+        let triggerChanged = lastApplied.map { $0.enabled != s.enabled || $0.trigger != s.trigger || $0.doubleTapMs != s.doubleTapMs } ?? true
+        if triggerChanged {
+            if s.enabled {
+                tap.start(doubleTap: s.trigger.usesDoubleTap, hotkey: s.trigger.usesHotkey)
+            } else {
+                tap.stop()
+            }
+        }
+        if s.enabled { startPolling() } else { stopPolling(); panel.hide() }
+
+        let clearOnQuitTurnedOn = lastApplied.map { !$0.clearOnQuit && s.clearOnQuit } ?? false
+        if clearOnQuitTurnedOn { try? archive?.deleteAll() }   // session-only from now on: nothing left on disk
+
+        store.enforce(limits: s.limits)
+        lastApplied = (s.enabled, s.trigger, s.doubleTapMs, s.clearOnQuit)
+    }
+
+    // MARK: Capture
+
+    private func startPolling() {
+        guard pollTimer == nil else { return }
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in self?.poll() }
+    }
+    private func stopPolling() { pollTimer?.invalidate(); pollTimer = nil }
+
+    private func poll() {
+        let count = reader.changeCount
+        guard count != lastChangeCount else { return }
+        lastChangeCount = count
+        let front = NSWorkspace.shared.frontmostApplication
+        let ctx = CaptureContext(frontBundleID: front?.bundleIdentifier, frontAppName: front?.localizedName ?? "Unknown",
+                                 settings: settings.settings, ownChangeCount: paster.lastOwnChangeCount)
+        guard let captured = ClipCapture.capture(from: reader, context: ctx) else { return }
+        // The pasteboard may have changed again between the veto check above and
+        // this content read (e.g. another app copied right behind us). Discard a
+        // stale capture and let the next poll pick up the newer change.
+        guard reader.changeCount == count else { return }
+        if let data = captured.blobData, let id = captured.clip.blobID, !settings.settings.clearOnQuit, !archiveUnavailable {
+            try? archive?.saveBlob(data, id: id)
+            if let thumb = ImageThumbnail.png(from: data, maxEdge: 64) { try? archive?.saveBlob(thumb, id: id, suffix: "thumb.png") }
+        }
+        store.insert(captured.clip, limits: settings.settings.limits)
+    }
+
+    // MARK: Panel and paste
+
+    func showPanel(anchor: CopyStackPanel.Anchor) {
+        guard settings.settings.enabled else { return }
+        if panel.isVisible { panel.hide(); return }
+        panel.show(anchor: anchor)
+    }
+
+    private func paste(_ clip: Clip) {
+        panel.hide()
+        if !paster.paste(clip) { store.delete(clip.id) }
+    }
+
+    // MARK: Persistence
+
+    private func load() {
+        guard !settings.settings.clearOnQuit else { return }
+        do {
+            store.replaceAll(try archive?.loadIndex() ?? [])
+            archive?.sweepBlobs(keeping: Set(store.clips.compactMap(\.blobID)))
+        } catch ClipArchiveError.corrupt {
+            NSLog("Imperum Tool clipboard archive corrupt; starting empty and rotating the key")
+            try? archive?.deleteAll()
+            _ = try? keyProvider.rotate()
+        } catch {
+            NSLog("Imperum Tool clipboard archive unavailable (\(error)); starting empty this session without touching disk")
+            archiveUnavailable = true
+        }
+    }
+
+    private func scheduleSave() {
+        saveWork?.cancel()
+        guard !settings.settings.clearOnQuit, !archiveUnavailable else { return }
+        let w = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            do { try self.archive?.saveIndex(self.store.clips) } catch { NSLog("Imperum Tool clipboard save failed: \(error)") }
+        }
+        saveWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
+    }
+
+    private func confirmClear() {
+        let a = NSAlert()
+        a.messageText = "Clear the copy stack?"
+        a.informativeText = "This removes every clip from memory and deletes the local archive."
+        a.addButton(withTitle: "Clear Stack"); a.addButton(withTitle: "Cancel")
+        a.alertStyle = .warning
+        NSApp.activate(ignoringOtherApps: true)
+        if a.runModal() == .alertFirstButtonReturn { clearAll() }
+    }
+
+    func clearAll() {
+        saveWork?.cancel()
+        store.clearAll()
+        try? archive?.deleteAll()
+    }
+
+    func willTerminate() {
+        saveWork?.cancel()
+        if settings.settings.clearOnQuit { store.clearAll(); try? archive?.deleteAll() }
+        else if !archiveUnavailable { try? archive?.saveIndex(store.clips) }
+    }
+}

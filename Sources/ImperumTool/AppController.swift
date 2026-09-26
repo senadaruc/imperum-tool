@@ -13,6 +13,8 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private lazy var volumeAutoMountBlocker = VolumeAutoMountBlocker(store: volumeBlockStore)
     private let tapStore = TapSettingsStore()
     private lazy var tapGestures = TapGestureController(store: tapStore)
+    private let clipboardSettings = ClipboardSettingsStore()
+    private lazy var clipboard = ClipboardController(settings: clipboardSettings)
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
     private var timer: Timer?
@@ -28,6 +30,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         spikes.config = config.spikeConfig
         _ = volumeAutoMountBlocker   // force the DiskArbitration session to start now, not on first Settings open
         _ = tapGestures              // likewise: the motion sensor must run whether or not Settings is ever opened
+        _ = clipboard                // pasteboard watcher + ⌘V tap must run whether or not Settings is ever opened
         buildMainMenu()
         statusItem.button?.action = #selector(toggleWindow)
         statusItem.button?.target = self
@@ -100,11 +103,12 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         ])
     }
 
-    @objc private func showSettings() {
+    @objc func showSettings() {
         if settingsWindow == nil {
             let tabs = SettingsTabs.makeController(config: config, blockStore: volumeBlockStore,
                                                    tapStore: tapStore, tapController: tapGestures,
-                                                   clipboardStore: ClipboardSettingsStore(), onClearClipboard: {})
+                                                   clipboardStore: clipboardSettings,
+                                                   onClearClipboard: { [weak self] in self?.clipboard.clearAll() })
             let win = NSWindow(contentViewController: tabs)
             win.title = "Imperum Tool Settings"
             win.styleMask = [.titled, .closable]
@@ -138,6 +142,10 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { showWindow() }
         return true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        clipboard.willTerminate()
     }
 
     private func showWindow() {
