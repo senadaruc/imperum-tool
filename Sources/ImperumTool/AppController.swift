@@ -110,6 +110,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
                                                    clipboardStore: clipboardSettings,
                                                    onClearClipboard: { [weak self] in self?.clipboard.clearAll() })
             let win = NSWindow(contentViewController: tabs)
+            win.title = "Imperum Tool Settings"
             win.styleMask = [.titled, .closable]
             win.toolbarStyle = .preference
             win.isReleasedWhenClosed = false
@@ -121,12 +122,6 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
             tabs.selectedTabViewItemIndex = i
         }
         SettingsTabs.requestedTab = nil
-        // NSWindow(contentViewController:) keeps window.title synchronized (via KVO)
-        // with the content view controller's `title` property. Switching the
-        // NSTabViewController's selected tab (just above, for a requested tab jump)
-        // clears its `title` back to empty, which clobbers whatever we set on window
-        // creation — so (re-)apply it here, on every call, after any tab switch.
-        settingsWindow?.title = "Imperum Tool Settings"
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
         settingsWindow?.makeFirstResponder(nil)   // don't auto-focus the first text field

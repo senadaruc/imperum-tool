@@ -111,6 +111,13 @@ enum SettingsTabs {
         func add<V: View>(_ id: String, _ label: String, _ symbol: String, size: NSSize, _ view: V) {
             let host = NSHostingController(rootView: view)
             host.preferredContentSize = size
+            // With tabStyle == .toolbar, NSTabViewController sets the window's
+            // title from the SELECTED child view controller's `title` on every
+            // selection change (including the user clicking a toolbar tab), via
+            // the KVO binding NSWindow(contentViewController:) sets up. Without
+            // this, each child's title defaults to nil and any tab click reverts
+            // the window title to blank ("Untitled").
+            host.title = "Imperum Tool Settings"
             let item = NSTabViewItem(viewController: host)
             item.identifier = id
             item.label = label
