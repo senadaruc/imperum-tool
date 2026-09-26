@@ -8,6 +8,9 @@ struct ClipboardSettingsTab: View {
     @ObservedObject var store: ClipboardSettingsStore
     let onClearAll: () -> Void
     @State private var selectedExclusion: String?
+    @State private var selectedHostExclusion: String?
+    @State private var newHostInput = ""
+    @State private var hostInputError = false
     @State private var accessibilityGranted = ActionRunner.isTrusted
     @State private var confirmClear = false
     @State private var cliInstalled = CLIInstaller.isInstalled
@@ -114,6 +117,29 @@ struct ClipboardSettingsTab: View {
                     Spacer()
                     Button("Clear All Clipboard Data", role: .destructive) { confirmClear = true }
                 }
+
+                Text("Excluded websites").font(.headline).padding(.top, 6)
+                List(selection: $selectedHostExclusion) {
+                    ForEach(store.settings.excludedHosts, id: \.self) { entry in
+                        Text(HostExclusion.display(entry)).tag(entry)
+                    }
+                }
+                .frame(height: 120)
+                HStack {
+                    TextField("*.example.com", text: $newHostInput)
+                        .onSubmit { addHostExclusion() }
+                    Button("Add") { addHostExclusion() }
+                        .disabled(newHostInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Remove") {
+                        if let s = selectedHostExclusion { store.settings.excludedHosts.removeAll { $0 == s }; selectedHostExclusion = nil }
+                    }
+                    .disabled(selectedHostExclusion == nil)
+                }
+                if hostInputError {
+                    Text("Enter a site like *.example.com").font(.caption).foregroundStyle(.red)
+                }
+                Text("Copies made while a page on these sites is in front are not saved. Each entry covers the site and all its subdomains.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -159,6 +185,20 @@ struct ClipboardSettingsTab: View {
         case .failure(let error):
             NSLog("Imperum Tool: copystack CLI install failed: \(error.localizedDescription)")
         }
+    }
+
+    private func addHostExclusion() {
+        let trimmed = newHostInput.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        guard let normalized = HostExclusion.normalize(trimmed) else {
+            hostInputError = true
+            return
+        }
+        hostInputError = false
+        if !store.settings.excludedHosts.contains(normalized) {
+            store.settings.excludedHosts.append(normalized)
+        }
+        newHostInput = ""
     }
 
     private func addApplication() {

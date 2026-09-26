@@ -179,7 +179,9 @@ final class ClipboardController {
         let front = NSWorkspace.shared.frontmostApplication
         let ctx = CaptureContext(frontBundleID: front?.bundleIdentifier, frontAppName: front?.localizedName ?? "Unknown",
                                  settings: settings.settings, ownChangeCount: paster.lastOwnChangeCount)
-        guard let captured = ClipCapture.capture(from: reader, context: ctx) else { return }
+        guard let captured = ClipCapture.capture(from: reader, context: ctx,
+                                                  excludedHosts: settings.settings.excludedHosts,
+                                                  frontPageHost: BrowserPageURL.frontPageHost) else { return }
         // The pasteboard may have changed again between the veto check above and
         // this content read (e.g. another app copied right behind us). Discard a
         // stale capture and let the next poll pick up the newer change.
