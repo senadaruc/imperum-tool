@@ -25,6 +25,13 @@ final class ClipPaster {
                     pb.writeObjects([color])
                     pb.setString(s, forType: .string)
                 }
+            } else if let rtf = clip.richText {
+                // Both representations: RTF-capable apps (Word, Pages, Mail,
+                // TextEdit) take the formatting, plain-text apps take the string.
+                write = { pb in
+                    pb.setData(rtf, forType: .rtf)
+                    pb.setString(s, forType: .string)
+                }
             } else {
                 write = { pb in pb.setString(s, forType: .string) }
             }
