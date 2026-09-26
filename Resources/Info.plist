@@ -11,4 +11,5 @@
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>ITSAppUsesNonExemptEncryption</key><false/>
+  <key>NSAppleEventsUsageDescription</key><string>Imperum Tool opens a Copy Stack window in your terminal app.</string>
 </dict></plist>
