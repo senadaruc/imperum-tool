@@ -117,6 +117,11 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
             win.center()
             settingsWindow = win
         }
+        if let id = SettingsTabs.requestedTab, let tabs = settingsWindow?.contentViewController as? NSTabViewController,
+           let i = tabs.tabViewItems.firstIndex(where: { ($0.identifier as? String) == id }) {
+            tabs.selectedTabViewItemIndex = i
+        }
+        SettingsTabs.requestedTab = nil
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
         settingsWindow?.makeFirstResponder(nil)   // don't auto-focus the first text field

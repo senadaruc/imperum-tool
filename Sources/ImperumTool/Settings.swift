@@ -99,6 +99,9 @@ func appVersionString() -> String {
 enum SettingsTabs {
     /// Tab shown when the window opens ("general" | "taps" | "volumes" | "clipboard").
     static var initialTab = "general"
+    /// One-shot: set to switch an already-open Settings window to this tab
+    /// the next time `showSettings()` runs; cleared right after.
+    static var requestedTab: String?
 
     static func makeController(config: AppConfig, blockStore: VolumeBlockStore,
                                tapStore: TapSettingsStore, tapController: TapGestureController,

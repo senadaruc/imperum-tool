@@ -50,7 +50,7 @@ final class ClipboardController {
         tap.onOpenPanel = { [weak self] in self?.showPanel(anchor: .mouseScreen) }
         statusItem.onShow = { [weak self] in self?.showPanel(anchor: .mainScreen) }
         statusItem.onClear = { [weak self] in self?.confirmClear() }
-        statusItem.onSettings = { SettingsTabs.initialTab = "clipboard"; NSApp.sendAction(#selector(AppController.showSettings), to: nil, from: nil) }
+        statusItem.onSettings = { SettingsTabs.requestedTab = "clipboard"; NSApp.sendAction(#selector(AppController.showSettings), to: nil, from: nil) }
         ActionRunner.showCopyStack = { [weak self] in self?.showPanel(anchor: .mainScreen) }
         settings.$settings.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] s in self?.apply(s) }.store(in: &bag)
     }
@@ -115,7 +115,16 @@ final class ClipboardController {
 
     private func paste(_ clip: Clip) {
         panel.hide()
-        if !paster.paste(clip) { store.delete(clip.id) }
+        if paster.paste(clip) {
+            // Our own change is skipped by the watcher's veto, so move the
+            // clip to the top here: same id/pin/content, fresh capturedAt.
+            let refreshed = Clip(id: clip.id, kind: clip.kind, capturedAt: Date(),
+                                 sourceAppName: clip.sourceAppName, sourceBundleID: clip.sourceBundleID,
+                                 isPinned: clip.isPinned, title: clip.title, payload: clip.payload)
+            store.insert(refreshed, limits: settings.settings.limits)
+        } else {
+            store.delete(clip.id)
+        }
     }
 
     // MARK: Persistence
