@@ -1,0 +1,85 @@
+// Sources/ImperumTool/CopyStackModel.swift
+import AppKit
+import Combine
+import ImperumCore
+
+/// Panel view model: `PanelState` + the store's clips, thumbnails, favicons,
+/// and the key commands. `onPaste` / `onClose` are wired by the controller.
+final class CopyStackModel: ObservableObject {
+    enum KeyCommand { case up, down, left, right, enter, escape, digit(Int), pin, delete }
+
+    @Published private(set) var state = PanelState()
+    @Published private(set) var sections: [ClipSection] = []
+    @Published private(set) var flat: [Clip] = []
+
+    var onPaste: ((Clip) -> Void)?
+    var onClose: (() -> Void)?
+
+    let store: ClipStore
+    let settings: ClipboardSettingsStore
+    private let archive: () -> ClipArchive?
+    private var thumbs: [UUID: NSImage] = [:]
+    private let favicons = FaviconLoader()
+    private var bag = Set<AnyCancellable>()
+
+    init(store: ClipStore, settings: ClipboardSettingsStore, archive: @escaping () -> ClipArchive?) {
+        self.store = store; self.settings = settings; self.archive = archive
+        store.$clips.sink { [weak self] _ in self?.recompute() }.store(in: &bag)
+        favicons.onLoaded = { [weak self] in self?.objectWillChange.send() }
+    }
+
+    var query: String { state.query }
+    var category: ClipCategory { state.category }
+    var selectedID: UUID? { flat.indices.contains(state.selectedIndex) ? flat[state.selectedIndex].id : nil }
+    var totalCount: Int { flat.count }
+
+    func reset() { state.reset(); thumbs.removeAll(); recompute() }
+
+    func setQuery(_ q: String) { state.setQuery(q); recompute() }
+
+    func select(_ id: UUID) {
+        if let i = flat.firstIndex(where: { $0.id == id }) { state.selectedIndex = i }
+    }
+
+    func setCategory(_ c: ClipCategory) {
+        while state.category != c { state.cycleCategory(by: 1) }
+        recompute()
+    }
+
+    /// Returns true when the key was consumed.
+    func handle(key: KeyCommand) -> Bool {
+        switch key {
+        case .up: state.moveSelection(by: -1, count: flat.count)
+        case .down: state.moveSelection(by: 1, count: flat.count)
+        case .left: state.cycleCategory(by: -1); recompute()
+        case .right: state.cycleCategory(by: 1); recompute()
+        case .enter: if let id = selectedID, let c = store.clip(id: id) { onPaste?(c) }
+        case .digit(let n): if flat.indices.contains(n - 1) { onPaste?(flat[n - 1]) }
+        case .pin: if let id = selectedID { store.togglePin(id) }
+        case .delete: if let id = selectedID { store.delete(id) }
+        case .escape: onClose?()
+        }
+        return true
+    }
+
+    func thumbnail(for clip: Clip) -> NSImage? {
+        guard let id = clip.blobID else { return nil }
+        if let t = thumbs[id] { return t }
+        guard let data = archive()?.loadBlob(id: id, suffix: "thumb.png") ?? archive()?.loadBlob(id: id),
+              let img = NSImage(data: data) else { return nil }
+        thumbs[id] = img
+        return img
+    }
+
+    func favicon(for clip: Clip) -> NSImage? {
+        guard settings.settings.showFavicons, clip.kind == .link, case .text(let s) = clip.payload,
+              let host = URL(string: s)?.host else { return nil }
+        return favicons.icon(forHost: host, cacheDir: archive()?.directory.appendingPathComponent("favicons"))
+    }
+
+    private func recompute() {
+        let v = state.visible(from: store.clips, now: Date(), calendar: .current)
+        sections = v.sections; flat = v.flat
+        state.clampSelection(count: flat.count)
+    }
+}
