@@ -45,6 +45,26 @@ final class ClipCaptureTests: XCTestCase {
         XCTAssertNil(CaptureVeto.reason(types: [], changeCount: 1, context: ctx(excluded: ["com.other"], front: nil)))
     }
 
+    func testExcludedHostProviderNotCalledWhenListEmpty() {
+        var calls = 0
+        let providerFlag = { calls += 1; return "login.mybank.com" }
+        XCTAssertNil(CaptureVeto.reason(types: [], changeCount: 1, context: ctx(), excludedHosts: [], frontPageHost: providerFlag))
+        XCTAssertEqual(calls, 0)
+    }
+
+    func testExcludedHostVetoesWhenMatching() {
+        XCTAssertEqual(CaptureVeto.reason(types: [], changeCount: 1, context: ctx(),
+                                           excludedHosts: ["mybank.com"], frontPageHost: { "login.mybank.com" }),
+                       .excludedHost("login.mybank.com"))
+    }
+
+    func testExcludedHostNoVetoWhenProviderReturnsNilOrNonMatchingHost() {
+        XCTAssertNil(CaptureVeto.reason(types: [], changeCount: 1, context: ctx(),
+                                         excludedHosts: ["mybank.com"], frontPageHost: { nil }))
+        XCTAssertNil(CaptureVeto.reason(types: [], changeCount: 1, context: ctx(),
+                                         excludedHosts: ["mybank.com"], frontPageHost: { "example.com" }))
+    }
+
     func testCapturesTextWithSourceAndTitle() {
         let pb = FakePasteboard(text: "hello\nworld")
         let c = ClipCapture.capture(from: pb, context: ctx(), now: Date(timeIntervalSince1970: 100))!

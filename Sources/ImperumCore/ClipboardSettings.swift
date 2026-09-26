@@ -22,6 +22,9 @@ public struct ClipboardSettings: Codable, Equatable {
     public var showBadge = true
     public var showFavicons = false
     public var excludedBundleIDs: [String] = ClipboardSettings.defaultExcluded
+    /// Normalised bare hostnames (see `HostExclusion.normalize`); each entry
+    /// matches the site and all its subdomains.
+    public var excludedHosts: [String] = []
     public var paused = false
     public var terminalPicker = true
     public var allowCLI = true
@@ -34,7 +37,7 @@ public struct ClipboardSettings: Codable, Equatable {
     public var doubleTapWindow: TimeInterval { TimeInterval(doubleTapMs) / 1000 }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, trigger, doubleTapMs, maxStack, retentionDays, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, paused, terminalPicker, allowCLI, cmuxSocketPassword
+        case enabled, trigger, doubleTapMs, maxStack, retentionDays, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, excludedHosts, paused, terminalPicker, allowCLI, cmuxSocketPassword
     }
 
     /// Forward-compatible: keys absent from older saved JSON keep their defaults.
@@ -50,6 +53,7 @@ public struct ClipboardSettings: Codable, Equatable {
         s.showBadge = try c.decodeIfPresent(Bool.self, forKey: .showBadge) ?? s.showBadge
         s.showFavicons = try c.decodeIfPresent(Bool.self, forKey: .showFavicons) ?? s.showFavicons
         s.excludedBundleIDs = try c.decodeIfPresent([String].self, forKey: .excludedBundleIDs) ?? s.excludedBundleIDs
+        s.excludedHosts = try c.decodeIfPresent([String].self, forKey: .excludedHosts) ?? s.excludedHosts
         s.paused = try c.decodeIfPresent(Bool.self, forKey: .paused) ?? s.paused
         s.terminalPicker = try c.decodeIfPresent(Bool.self, forKey: .terminalPicker) ?? s.terminalPicker
         s.allowCLI = try c.decodeIfPresent(Bool.self, forKey: .allowCLI) ?? s.allowCLI
