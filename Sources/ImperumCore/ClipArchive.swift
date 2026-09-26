@@ -88,9 +88,10 @@ public final class ClipArchive {
 
     private func readSealed(_ url: URL) throws -> Data {
         let raw = try Data(contentsOf: url)
+        let key = try keys.key()
         do {
             let box = try AES.GCM.SealedBox(combined: raw)
-            return try AES.GCM.open(box, using: try keys.key())
+            return try AES.GCM.open(box, using: key)
         } catch {
             throw ClipArchiveError.corrupt
         }

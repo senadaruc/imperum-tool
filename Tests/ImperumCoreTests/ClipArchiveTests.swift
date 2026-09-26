@@ -71,4 +71,27 @@ final class ClipArchiveTests: XCTestCase {
         XCTAssertEqual(try a.loadIndex(), [])
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.appendingPathComponent("blobs").path), [])
     }
+
+    private enum KeychainDown: Error { case locked }
+    private struct ThrowingKeyProvider: ArchiveKeyProvider {
+        func key() throws -> SymmetricKey { throw KeychainDown.locked }
+    }
+
+    func testKeyProviderErrorIsNotReportedAsCorrupt() throws {
+        let good = archive()
+        let clips = [clip("x")]
+        try good.saveIndex(clips)
+
+        let broken = ClipArchive(directory: dir, keyProvider: ThrowingKeyProvider())
+        XCTAssertThrowsError(try broken.loadIndex()) { e in
+            XCTAssertNil(e as? ClipArchiveError)
+            XCTAssertTrue(e is KeychainDown)
+        }
+        XCTAssertNil(broken.loadBlob(id: UUID()))
+        XCTAssertThrowsError(try broken.saveIndex([clip("y")])) { e in
+            XCTAssertNil(e as? ClipArchiveError)
+            XCTAssertTrue(e is KeychainDown)
+        }
+        XCTAssertEqual(try good.loadIndex(), clips)
+    }
 }
