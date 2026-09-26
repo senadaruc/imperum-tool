@@ -64,6 +64,11 @@ final class ClipboardController {
     init(settings: ClipboardSettingsStore) {
         self.settings = settings
         archive = ClipArchive(directory: Self.directory, keyProvider: keyProvider)
+        // Prime the Keychain key cache once, here on main, before any save
+        // can be scheduled: the background save queue and main (blob reads/
+        // writes) both call keyProvider.key(), and on a fresh install with
+        // nothing cached yet that's a race to be the first to read/rotate.
+        _ = try? keyProvider.key()
         load()
         store.onChange = { [weak self] in self?.scheduleSave() }
         store.onBlobsDropped = { [weak self] ids in self?.archive?.deleteBlobs(ids); self?.blobCache.remove(ids) }
@@ -73,7 +78,10 @@ final class ClipboardController {
         statusItem.onShow = { [weak self] in self?.showPanel(anchor: .mainScreen) }
         statusItem.onClear = { [weak self] in self?.confirmClear() }
         statusItem.onSettings = { SettingsTabs.requestedTab = "clipboard"; NSApp.sendAction(#selector(AppController.showSettings), to: nil, from: nil) }
-        statusItem.onGrantAccessibility = { ActionRunner.ensureAccessibility() }
+        statusItem.onGrantAccessibility = { [weak self] in
+            ActionRunner.ensureAccessibility()
+            self?.retryTapIfTrusted()
+        }
         ActionRunner.showCopyStack = { [weak self] in self?.showPanel(anchor: .mainScreen) }
         settings.$settings.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] s in self?.apply(s) }.store(in: &bag)
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in

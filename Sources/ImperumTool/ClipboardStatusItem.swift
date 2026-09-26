@@ -72,7 +72,7 @@ final class ClipboardStatusItem: NSObject, NSMenuDelegate {
         pauseItem.title = settings.settings.paused ? "Resume Capture" : "Pause Capture"
         showItem.keyEquivalent = settings.settings.trigger.usesHotkey ? "v" : ""
         showItem.keyEquivalentModifierMask = [.command, .shift]
-        grantAccessibilityItem.isHidden = !needsAccessibility
+        grantAccessibilityItem.isHidden = !needsAccessibility || ActionRunner.isTrusted
     }
 
     private func redraw() {
