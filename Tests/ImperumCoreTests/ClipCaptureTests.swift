@@ -136,7 +136,12 @@ final class ClipCaptureTests: XCTestCase {
     }
 
     func testImageCopyDoesNotReadRTF() {
-        let pb = FakePasteboard(image: PasteboardImage(data: Data([1, 2, 3]), width: 5, height: 5))
+        // public.rtf IS present, so this would pass even if the image path
+        // read RTF unless the type check alone were driving the assertion —
+        // no text at all is what actually keeps the image path from ever
+        // calling rtf().
+        let pb = FakePasteboard(types: ["public.tiff", "public.rtf"],
+                                image: PasteboardImage(data: Data([1, 2, 3]), width: 5, height: 5), text: nil)
         let c = ClipCapture.capture(from: pb, context: ctx())!
         XCTAssertEqual(c.clip.kind, .image)
         XCTAssertFalse(pb.rtfFlag.read)

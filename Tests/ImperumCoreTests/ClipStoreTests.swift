@@ -42,6 +42,25 @@ final class ClipStoreTests: XCTestCase {
         XCTAssertEqual(s.clips.first?.richText, Data([1, 2, 3]))
     }
 
+    /// Guards the shape of clip the controller rebuilds after a successful
+    /// paste, to move it to the top (same id/kind/source/pin/title/payload/
+    /// richText, just a fresh capturedAt): re-inserting that must not drop
+    /// richText, since it dedupes onto the same contentKey as the original.
+    func testReinsertAfterPasteKeepsRichText() {
+        let s = ClipStore()
+        let original = Clip(kind: .text, sourceAppName: "Word", sourceBundleID: "com.microsoft.Word",
+                            title: "hi", payload: .text("hi"), richText: Data([1, 2, 3]))
+        s.insert(original, limits: limits, now: base)
+        let refreshed = Clip(id: original.id, kind: original.kind, capturedAt: base.addingTimeInterval(10),
+                             sourceAppName: original.sourceAppName, sourceBundleID: original.sourceBundleID,
+                             isPinned: original.isPinned, title: original.title, payload: original.payload,
+                             richText: original.richText)
+        let again = s.insert(refreshed, limits: limits, now: base)
+        XCTAssertEqual(s.clips.count, 1)
+        XCTAssertEqual(again.richText, Data([1, 2, 3]))
+        XCTAssertEqual(s.clips.first?.richText, Data([1, 2, 3]))
+    }
+
     func testMaxStackDropsOldestUnpinnedOnly() {
         let s = ClipStore()
         let keep = s.insert(text("pinned", at: 1), limits: limits, now: base)

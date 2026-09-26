@@ -183,7 +183,8 @@ final class ClipboardController {
             // clip to the top here: same id/pin/content, fresh capturedAt.
             let refreshed = Clip(id: clip.id, kind: clip.kind, capturedAt: Date(),
                                  sourceAppName: clip.sourceAppName, sourceBundleID: clip.sourceBundleID,
-                                 isPinned: clip.isPinned, title: clip.title, payload: clip.payload)
+                                 isPinned: clip.isPinned, title: clip.title, payload: clip.payload,
+                                 richText: clip.richText)
             store.insert(refreshed, limits: settings.settings.limits)
         } else {
             store.delete(clip.id)
