@@ -238,7 +238,7 @@ public enum FrameRenderer {
         case .paste, .pick:
             hints = "↑↓ move  ←→ category  ⏎ paste  ^P pin  ^D delete  esc cancel"
         }
-        let text = m.status ?? hints
+        let text = m.status.map(Sanitize.line) ?? hints
         return DisplayWidth.truncate(text, to: cols)
     }
 

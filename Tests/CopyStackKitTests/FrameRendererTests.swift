@@ -307,4 +307,24 @@ final class FrameRendererTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Footer status sanitization
+
+    /// `m.status` isn't necessarily an app-authored string forever (and
+    /// costs nothing to defend regardless) — the footer must run it through
+    /// the same escape-sequence defence as every other piece of rendered
+    /// clip content. A bare C0 control (BEL, 0x07) is used here rather than
+    /// a CSI/OSC sequence because `FrameRenderer.plain` (this test file's
+    /// own ANSI-stripping helper for reading back rendering the picker
+    /// itself emits) would strip a CSI sequence before this assertion ever
+    /// saw it; a bare control char passes `plain` through untouched, so
+    /// only `Sanitize.line`'s own "·" replacement can account for it.
+    func testFooterStatusIsSanitized() {
+        var m = fourClipModel()
+        m.status = "before\u{07}after"
+        let frame = FrameRenderer.render(m, size: TerminalSize(cols: 100, rows: 30), now: now, calendar: calendar, noColor: true)
+        let plain = FrameRenderer.plain(frame)
+        let lines = plain.components(separatedBy: "\r\n")
+        XCTAssertEqual(lines[29], "before·after")
+    }
 }
