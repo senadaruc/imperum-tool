@@ -169,19 +169,13 @@ final class ActionRunner {
     private func tileFrontWindow(_ tile: Tile) {
         guard Self.ensureAccessibility() else { return }
         guard let app = NSWorkspace.shared.frontmostApplication else { return HUD.shared.show("No front app") }
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
-        var winRef: AnyObject?
-        guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &winRef) == .success,
-              let win = winRef else { return HUD.shared.show("No front window", symbol: "macwindow") }
-        let window = win as! AXUIElement
+        guard let window = AXWindow.focusedWindow(pid: app.processIdentifier) else {
+            return HUD.shared.show("No front window", symbol: "macwindow")
+        }
 
         // AX coordinates: origin top-left of the primary screen, y down.
         let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        var pos = CGPoint.zero
-        var posRef: AnyObject?
-        if AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posRef) == .success, let p = posRef {
-            AXValueGetValue(p as! AXValue, .cgPoint, &pos)
-        }
+        let pos = AXWindow.frame(of: window)?.origin ?? .zero
         let cocoaPoint = CGPoint(x: pos.x + 2, y: primaryH - pos.y - 2)
         let screen = NSScreen.screens.first { $0.frame.contains(cocoaPoint) } ?? NSScreen.main ?? NSScreen.screens[0]
         var target = screen.visibleFrame
@@ -192,12 +186,8 @@ final class ActionRunner {
             target.origin.x += target.width - half; target.size.width = half
         case .fill: break
         }
-        var origin = CGPoint(x: target.origin.x, y: primaryH - target.origin.y - target.height)
-        var size = target.size
-        guard let o = AXValueCreate(.cgPoint, &origin), let s = AXValueCreate(.cgSize, &size) else { return }
-        AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, o)
-        AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, s)
-        AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, o)   // some apps clamp size first
+        let origin = CGPoint(x: target.origin.x, y: primaryH - target.origin.y - target.height)
+        AXWindow.setFrame(window, CGRect(origin: origin, size: target.size))
     }
 
     // MARK: Processes / apps / URLs

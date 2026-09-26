@@ -22,6 +22,7 @@ final class ClipboardSettingsTests: XCTestCase {
         XCTAssertFalse(s.paused)
         XCTAssertTrue(s.terminalPicker)
         XCTAssertTrue(s.allowCLI)
+        XCTAssertEqual(s.cmuxSocketPassword, "")
         XCTAssertEqual(s.excludedBundleIDs, ["com.1password.1password", "com.agilebits.onepassword7",
                                              "com.bitwarden.desktop", "com.apple.keychainaccess"])
         XCTAssertEqual(s.limits, ClipLimits(maxStack: 500, retentionDays: 30))
@@ -46,16 +47,19 @@ final class ClipboardSettingsTests: XCTestCase {
         XCTAssertEqual(s.trigger, .doubleTap)
         XCTAssertTrue(s.terminalPicker)
         XCTAssertTrue(s.allowCLI)
+        XCTAssertEqual(s.cmuxSocketPassword, "")
     }
 
     func testTerminalPickerAndAllowCLIRoundTrip() throws {
         var s = ClipboardSettings()
         s.terminalPicker = false
         s.allowCLI = false
+        s.cmuxSocketPassword = "s3cret"
         let data = try JSONEncoder().encode(s)
         let decoded = try JSONDecoder().decode(ClipboardSettings.self, from: data)
         XCTAssertFalse(decoded.terminalPicker)
         XCTAssertFalse(decoded.allowCLI)
+        XCTAssertEqual(decoded.cmuxSocketPassword, "s3cret")
     }
 
     func testClampsOutOfRangeValues() {

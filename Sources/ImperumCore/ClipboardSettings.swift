@@ -25,6 +25,8 @@ public struct ClipboardSettings: Codable, Equatable {
     public var paused = false
     public var terminalPicker = true
     public var allowCLI = true
+    /// Passed to the cmux CLI as `CMUX_SOCKET_PASSWORD` when non-empty.
+    public var cmuxSocketPassword = ""
 
     public init() {}
 
@@ -32,7 +34,7 @@ public struct ClipboardSettings: Codable, Equatable {
     public var doubleTapWindow: TimeInterval { TimeInterval(doubleTapMs) / 1000 }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, trigger, doubleTapMs, maxStack, retentionDays, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, paused, terminalPicker, allowCLI
+        case enabled, trigger, doubleTapMs, maxStack, retentionDays, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, paused, terminalPicker, allowCLI, cmuxSocketPassword
     }
 
     /// Forward-compatible: keys absent from older saved JSON keep their defaults.
@@ -51,6 +53,7 @@ public struct ClipboardSettings: Codable, Equatable {
         s.paused = try c.decodeIfPresent(Bool.self, forKey: .paused) ?? s.paused
         s.terminalPicker = try c.decodeIfPresent(Bool.self, forKey: .terminalPicker) ?? s.terminalPicker
         s.allowCLI = try c.decodeIfPresent(Bool.self, forKey: .allowCLI) ?? s.allowCLI
+        s.cmuxSocketPassword = try c.decodeIfPresent(String.self, forKey: .cmuxSocketPassword) ?? s.cmuxSocketPassword
         self = s
     }
 }
