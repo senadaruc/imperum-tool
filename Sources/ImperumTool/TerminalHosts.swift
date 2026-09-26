@@ -16,6 +16,15 @@ struct HostHandle {
     /// Set when `open` launched a brand-new process instance (an `openApp`
     /// launch with `createsNewApplicationInstance = true`); `close` quits it.
     let newInstance: NSRunningApplication?
+    /// Whether the `Launch` that succeeded already sized the window itself
+    /// (iTerm2/Terminal's AppleScript `columns`/`rows`, kitty's and Ghostty's
+    /// `openApp` fallback's `initial_window_width`/`--window-width` CLI
+    /// args). False for the two paths with no window-size mechanism at all —
+    /// Ghostty's primary AppleScript path (its `surface configuration`
+    /// record has no width/height/columns/rows property, confirmed via
+    /// `Ghostty.sdef`) and cmux (no window-size CLI flag or AppleScript verb)
+    /// — which `position` then gives a fixed fallback size instead.
+    let sizedNatively: Bool
 }
 
 enum HostError: Error {
@@ -130,7 +139,8 @@ private final class GenericTerminalHost: TerminalHost {
             runAppleScript(source) { result in
                 switch result {
                 case .success(let windowID):
-                    completion(.success(HostHandle(app: self.app, hostPID: self.runningApp.processIdentifier, windowID: windowID, newInstance: nil)))
+                    completion(.success(HostHandle(app: self.app, hostPID: self.runningApp.processIdentifier, windowID: windowID,
+                                                    newInstance: nil, sizedNatively: self.sizesNatively(kind))))
                 case .failure(let err):
                     completion(.failure(err))
                 }
@@ -146,7 +156,8 @@ private final class GenericTerminalHost: TerminalHost {
                     if let error {
                         completion(.failure(.launchFailed(error.localizedDescription)))
                     } else if let newInstance {
-                        completion(.success(HostHandle(app: self.app, hostPID: newInstance.processIdentifier, windowID: nil, newInstance: newInstance)))
+                        completion(.success(HostHandle(app: self.app, hostPID: newInstance.processIdentifier, windowID: nil,
+                                                        newInstance: newInstance, sizedNatively: self.sizesNatively(kind))))
                     } else {
                         completion(.failure(.launchFailed("openApplication returned no running instance")))
                     }
@@ -155,6 +166,16 @@ private final class GenericTerminalHost: TerminalHost {
 
         case .cli(let executable, let argv):
             runCLI(executable: executable, argv: argv, completion: completion)
+        }
+    }
+
+    /// Whether the given `Launch.Kind`, for this host's `app`, already sizes
+    /// the window itself. See the doc comment on `HostHandle.sizedNatively`.
+    private func sizesNatively(_ kind: HostCommand.Launch.Kind) -> Bool {
+        switch (app, kind) {
+        case (.ghostty, .appleScript): return false   // no size property in Ghostty's surface configuration
+        case (.cmux, _): return false                 // no window-size CLI flag or AppleScript verb at all
+        default: return true                          // ghostty's openApp fallback, iTerm2, Terminal, kitty
         }
     }
 
@@ -223,7 +244,8 @@ private final class GenericTerminalHost: TerminalHost {
                 }
             }
             DispatchQueue.main.async {
-                completion(.success(HostHandle(app: self.app, hostPID: self.runningApp.processIdentifier, windowID: windowID, newInstance: nil)))
+                completion(.success(HostHandle(app: self.app, hostPID: self.runningApp.processIdentifier, windowID: windowID,
+                                                newInstance: nil, sizedNatively: false)))
             }
         }
     }
@@ -277,25 +299,45 @@ private final class GenericTerminalHost: TerminalHost {
         p.environment = env
         let out = Pipe()
         p.standardOutput = out
-        p.standardError = Pipe()
+        // Never read, so route straight to /dev/null: an unread stderr pipe
+        // that fills up would block the child from ever writing more (and so
+        // from ever exiting), which could then block this call regardless of
+        // the timeout below.
+        p.standardError = FileHandle.nullDevice
         do { try p.run() } catch {
             return .failure(.launchFailed("failed to start \(executable): \(error.localizedDescription)"))
         }
 
+        // Read stdout on its own queue, independent of the wait below, so a
+        // child that (for whatever reason) doesn't close its stdout promptly
+        // can't itself become the thing that blocks this call past `timeout`.
+        let output = OutputBox()
+        DispatchQueue(label: "com.imperum.terminalHosts.runProcess.read").async {
+            output.set(out.fileHandleForReading.readDataToEndOfFile())
+        }
+
         let timedOut = TimeoutFlag()
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        let killQueue = DispatchQueue.global(qos: .utility)
+        let timer = DispatchSource.makeTimerSource(queue: killQueue)
         timer.schedule(deadline: .now() + timeout)
         timer.setEventHandler {
-            if p.isRunning {
-                timedOut.set()
-                p.terminate()
+            guard p.isRunning else { return }
+            timedOut.set()
+            p.terminate()   // SIGTERM
+            // A CLI that ignores SIGTERM (or is stuck) must not be able to
+            // hang this indefinitely: escalate shortly after.
+            killQueue.asyncAfter(deadline: .now() + 0.5) {
+                if p.isRunning { kill(p.processIdentifier, SIGKILL) }
             }
         }
         timer.resume()
 
-        let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         timer.cancel()
+        // The process (and so the pipe's write end) is gone by now, so this
+        // can only block briefly even in the worst case; `timeout` doubled
+        // is a last-resort bound, not the expected wait.
+        let data = output.wait(timeout: .now() + timeout * 2)
 
         if timedOut.value {
             return .failure(.timeout)
@@ -313,6 +355,18 @@ private final class GenericTerminalHost: TerminalHost {
         private var _value = false
         var value: Bool { lock.lock(); defer { lock.unlock() }; return _value }
         func set() { lock.lock(); _value = true; lock.unlock() }
+    }
+
+    /// Hands stdout data from `runProcess`'s dedicated read queue back to its
+    /// caller, with a bounded wait rather than an unconditional block.
+    private final class OutputBox {
+        private let semaphore = DispatchSemaphore(value: 0)
+        private var data = Data()
+        func set(_ d: Data) { data = d; semaphore.signal() }
+        func wait(timeout: DispatchTime) -> Data {
+            _ = semaphore.wait(timeout: timeout)
+            return data
+        }
     }
 
     // MARK: close
@@ -349,11 +403,11 @@ private final class GenericTerminalHost: TerminalHost {
             AXWindow.setFrontmost(pid: handle.hostPID)
             let primaryH = NSScreen.screens.first?.frame.height ?? 0
             let visible = Self.screenUnderMouse()
-            // Hosts that can't set their own window size natively (currently
-            // only cmux, which has no window-size CLI/AppleScript option)
-            // get a fixed ~100x30 terminal cell size; everyone else already
-            // sized itself via HostCommand's launch, so only re-centre it.
-            let size = app == .cmux ? CGSize(width: 900, height: 560) : (AXWindow.frame(of: window)?.size ?? CGSize(width: 900, height: 560))
+            // The launch that actually succeeded (see HostHandle.sizedNatively)
+            // decides this, not just `app`: Ghostty's primary AppleScript path
+            // has no sizing option but its openApp fallback does, so the same
+            // app needs different treatment depending on which one won.
+            let size = handle.sizedNatively ? (AXWindow.frame(of: window)?.size ?? CGSize(width: 900, height: 560)) : CGSize(width: 900, height: 560)
             let cocoaOrigin = CGPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2)
             let axOrigin = CGPoint(x: cocoaOrigin.x, y: primaryH - cocoaOrigin.y - size.height)
             AXWindow.setFrame(window, CGRect(origin: axOrigin, size: size))

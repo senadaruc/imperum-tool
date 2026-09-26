@@ -96,10 +96,26 @@ public enum HostCommand {
                     ["send", "--window", "{WINDOW}", " \(command)\n"],
                 ])))
             }
+            // cmux's "perform action" (unlike its CLI's `send`, and unlike
+            // Ghostty's real "perform action", which takes a plain Ghostty
+            // action string) runs its `text: <content>` action through its
+            // own escape processing — confirmed live: a *single* backslash
+            // in the AppleScript runtime string (i.e. `command` escaped only
+            // for AppleScript's own string-literal syntax, same as every
+            // other host) made the whole `perform action` silently type
+            // nothing at all, while doubling it first (so cmux's own
+            // unescaping halves it back to one) typed and ran correctly. A
+            // literal `"` needed no such doubling (tested separately: it
+            // passed through untouched). `command` only ever contains a
+            // backslash via `ShellQuote.single`'s `'\''` escaping of an
+            // embedded single quote in `copystackPath` (e.g. a path with an
+            // apostrophe) — an edge case, but this is exactly the case that
+            // would otherwise silently fail here.
+            let cmuxActionText = command.replacingOccurrences(of: "\\", with: "\\\\")
             let ascript = """
             tell application id "\(bundleID)"
                 set w to new window
-                perform action "text: \(escapeForAppleScriptString(command))" & return on focused terminal of selected tab of w
+                perform action "text: \(escapeForAppleScriptString(cmuxActionText))" & return on focused terminal of selected tab of w
                 return id of w
             end tell
             """
@@ -168,13 +184,17 @@ public enum HostCommand {
     /// Ghostty's windows reject that same standard "close" event too (same
     /// -1708 error, confirmed live) — but unlike cmux, Ghostty.sdef defines
     /// its own custom `close window <specifier>` command, confirmed live to
-    /// work, which is what this returns for `.ghostty`.
+    /// work, which is what this returns for `.ghostty`. Ghostty.sdef types a
+    /// window's `id` as `text` (real ids look like `tab-group-7c05f73c00`,
+    /// confirmed live), unlike iTerm2/Terminal's numeric-looking ids, so it's
+    /// quoted as an AppleScript string literal here (and escaped, in case it
+    /// ever contained a `"` or `\`).
     public static func closeScript(for app: TerminalApp, bundleID: String, windowID: String) -> String? {
         switch app {
         case .kitty, .warp, .cmux:
             return nil
         case .ghostty:
-            return "tell application id \"\(bundleID)\" to close window (first window whose id is \(windowID))"
+            return "tell application id \"\(bundleID)\" to close window (first window whose id is \"\(escapeForAppleScriptString(windowID))\")"
         case .iterm2, .terminal:
             return "tell application id \"\(bundleID)\" to close (first window whose id is \(windowID))"
         }

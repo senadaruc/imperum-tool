@@ -127,11 +127,18 @@ final class HostCommandTests: XCTestCase {
         XCTAssertTrue(source.contains(#"\"weird\""#), "expected escaped inner double quotes, got: \(source)")
     }
 
-    func testCmuxLaunchEscapesBackslashesInAppleScriptFallback() {
+    /// cmux's own `perform action "text: ..."` does its own escape
+    /// processing on top of AppleScript's (confirmed live: one backslash in
+    /// the AppleScript runtime string made the whole `perform action` type
+    /// nothing at all), so one real backslash in `copystackPath` must appear
+    /// as *four* backslash characters in the generated source: doubled once
+    /// so cmux's own unescaping halves it back to one, then doubled again by
+    /// the usual AppleScript string-literal escaping.
+    func testCmuxLaunchQuadrupleEscapesBackslashesForActionTextParsing() {
         let launches = HostCommand.launch(for: .cmux, copystackPath: "/tmp/weird\\path/copystack", session: session,
                                            bundleURL: "/Applications/cmux.app", bundleID: "com.cmuxterm.app")
         guard case .appleScript(let source) = launches[0].kind else { return XCTFail("expected appleScript") }
-        XCTAssertTrue(source.contains("weird\\\\path"), "expected escaped backslash, got: \(source)")
+        XCTAssertTrue(source.contains("weird\\\\\\\\path"), "expected quadrupled backslash, got: \(source)")
     }
 
     func testCmuxLaunchWithoutCLIOnlyHasAppleScriptFallback() {
@@ -250,9 +257,18 @@ final class HostCommandTests: XCTestCase {
     /// too (confirmed live, same -1708 error as cmux) — but Ghostty.sdef
     /// defines its own "close window <specifier>" command, confirmed live to
     /// work, which is what this must use instead of the generic template.
+    /// Ghostty.sdef types a window's `id` as `text` (confirmed live: real ids
+    /// look like `tab-group-7c05f73c00`, not a small integer), so unlike
+    /// iTerm2/Terminal's numeric-looking ids, it must be quoted as an
+    /// AppleScript string literal.
     func testCloseScriptGhostty() {
-        XCTAssertEqual(HostCommand.closeScript(for: .ghostty, bundleID: "com.mitchellh.ghostty", windowID: "42"),
-                       "tell application id \"com.mitchellh.ghostty\" to close window (first window whose id is 42)")
+        XCTAssertEqual(HostCommand.closeScript(for: .ghostty, bundleID: "com.mitchellh.ghostty", windowID: "tab-group-7c05f73c00"),
+                       "tell application id \"com.mitchellh.ghostty\" to close window (first window whose id is \"tab-group-7c05f73c00\")")
+    }
+
+    func testCloseScriptGhosttyEscapesDoubleQuoteInID() {
+        XCTAssertEqual(HostCommand.closeScript(for: .ghostty, bundleID: "com.mitchellh.ghostty", windowID: "weird\"id"),
+                       "tell application id \"com.mitchellh.ghostty\" to close window (first window whose id is \"weird\\\"id\")")
     }
 
     func testCloseScriptIterm2() {
