@@ -29,8 +29,8 @@ enum BrowserPageURL {
         guard let window else { return nil }
 
         guard let webArea = findWebArea(from: window) else { return nil }
-        guard let urlString = stringAttribute(webArea, kAXURLAttribute) ?? stringAttribute(webArea, "AXDocument") else { return nil }
-        return URL(string: urlString)?.host
+        let url = urlAttribute(webArea, kAXURLAttribute) ?? urlAttribute(webArea, "AXDocument")
+        return url?.host
     }
 
     private static func focusedOrFirstWindow(of axApp: AXUIElement) -> AXUIElement? {
@@ -71,5 +71,16 @@ enum BrowserPageURL {
         var ref: AnyObject?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success else { return nil }
         return ref as? String
+    }
+
+    /// `kAXURLAttribute` ("AXURL") comes back as an `NSURL`, not a string —
+    /// `AXDocument` is inconsistent across apps, so both a URL and a plain
+    /// string value are accepted here.
+    private static func urlAttribute(_ element: AXUIElement, _ attribute: String) -> URL? {
+        var ref: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success else { return nil }
+        if let url = ref as? URL { return url }
+        if let s = ref as? String { return URL(string: s) }
+        return nil
     }
 }
