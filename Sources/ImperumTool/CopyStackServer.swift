@@ -42,12 +42,16 @@ final class CopyStackServer {
 
     private var socketServer: SocketServer?
 
-    /// Task 10 sets this; when nil, a session paste behaves like a standalone paste.
-    var onSessionPaste: ((SessionID, Clip) -> Void)?
-    /// Task 10 uses it for EOF.
+    /// `ClipboardController` sets this to deliver a session paste to the
+    /// live `PickSession` it identifies, returning whether one was found.
+    /// When nil, or when it returns `false` (no live session matched the
+    /// token — e.g. it already timed out or was cancelled), the paste is
+    /// treated as a standalone paste instead — see `handlePaste`.
+    var onSessionPaste: ((SessionID, Clip) -> Bool)?
+    /// `ClipboardController` uses this for EOF.
     var onConnectionClosed: ((ConnectionID, SessionID?) -> Void)?
-    /// Task 10 uses it to know a picker's `hello{session}` arrived, i.e. the
-    /// picker connected over the socket. Called on main.
+    /// `ClipboardController` uses this to know a picker's `hello{session}`
+    /// arrived, i.e. the picker connected over the socket. Called on main.
     var onSessionConnected: ((SessionID) -> Void)?
 
     init(store: ClipStore, settings: ClipboardSettingsStore, paster: ClipPaster, commitPasted: @escaping (Clip) -> Void) {
@@ -155,9 +159,13 @@ final class CopyStackServer {
 
     private func handlePaste(_ clip: Clip, session: SessionID?, generation: Generation) -> Result<Void, PasteError> {
         guard paster.write(clip) else { return .failure(.imageMissing) }
-        if let session, let onSessionPaste {
-            onSessionPaste(session, clip)
-        } else {
+        // A session token that matches no live `PickSession` (it already
+        // timed out, was cancelled, or the token is stale/bogus) must not
+        // silently swallow the paste: fall back to the standalone-paste
+        // path, keyed to this connection, so the user still gets a paste on
+        // EOF via the usual 150ms ⌘V fallback below.
+        let deliveredToSession = session.flatMap { onSessionPaste?($0, clip) } ?? false
+        if !deliveredToSession {
             generation.pendingStandalonePaste[generation.currentConnection] = clip
         }
         return .success(())

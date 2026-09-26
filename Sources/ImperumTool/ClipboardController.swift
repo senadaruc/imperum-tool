@@ -92,8 +92,9 @@ final class ClipboardController {
         }
         ActionRunner.showCopyStack = { [weak self] in self?.openCopyStack(anchor: .mainScreen) }
         copyStackServer.onSessionPaste = { [weak self] sessionID, clip in
-            guard let self, let session = self.session, session.token == sessionID else { return }
+            guard let self, let session = self.session, session.token == sessionID else { return false }
             session.onPasteRequested(clip)
+            return true
         }
         copyStackServer.onConnectionClosed = { [weak self] _, sessionID in
             guard let self, let session = self.session, let sessionID, session.token == sessionID else { return }
@@ -214,7 +215,7 @@ final class ClipboardController {
         if settings.settings.terminalPicker,
            let front = NSWorkspace.shared.frontmostApplication,
            let app = TerminalApp.detect(bundleID: front.bundleIdentifier), app.supportsPicker,
-           let host = TerminalHosts.host(for: app, runningApp: front),
+           let host = TerminalHosts.host(for: app, runningApp: front, cmuxSocketPassword: settings.settings.cmuxSocketPassword),
            let cli = Bundle.main.url(forAuxiliaryExecutable: "copystack")?.path,
            copyStackServer.isRunning {
             startSession(host: host, app: app, origin: front, copystackPath: cli, anchor: anchor)
