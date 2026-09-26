@@ -103,7 +103,8 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     @objc private func showSettings() {
         if settingsWindow == nil {
             let tabs = SettingsTabs.makeController(config: config, blockStore: volumeBlockStore,
-                                                   tapStore: tapStore, tapController: tapGestures)
+                                                   tapStore: tapStore, tapController: tapGestures,
+                                                   clipboardStore: ClipboardSettingsStore(), onClearClipboard: {})
             let win = NSWindow(contentViewController: tabs)
             win.title = "Imperum Tool Settings"
             win.styleMask = [.titled, .closable]

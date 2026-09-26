@@ -97,11 +97,12 @@ func appVersionString() -> String {
 /// NSTabViewController in `.toolbar` style resizes the window to each tab's
 /// `preferredContentSize` when switching.
 enum SettingsTabs {
-    /// Tab shown when the window opens ("general" | "taps" | "volumes").
+    /// Tab shown when the window opens ("general" | "taps" | "volumes" | "clipboard").
     static var initialTab = "general"
 
     static func makeController(config: AppConfig, blockStore: VolumeBlockStore,
-                               tapStore: TapSettingsStore, tapController: TapGestureController) -> NSTabViewController {
+                               tapStore: TapSettingsStore, tapController: TapGestureController,
+                               clipboardStore: ClipboardSettingsStore, onClearClipboard: @escaping () -> Void) -> NSTabViewController {
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         func add<V: View>(_ id: String, _ label: String, _ symbol: String, size: NSSize, _ view: V) {
@@ -117,6 +118,8 @@ enum SettingsTabs {
             GeneralSettingsTab(config: config))
         add("taps", "Tap Gestures", "hand.tap", size: NSSize(width: 600, height: 720),
             TapGesturesSettingsTab(store: tapStore, controller: tapController))
+        add("clipboard", "Clipboard", "doc.on.clipboard", size: NSSize(width: 600, height: 720),
+            ClipboardSettingsTab(store: clipboardStore, onClearAll: onClearClipboard))
         add("volumes", "External Volumes", "externaldrive", size: NSSize(width: 600, height: 420),
             Form { ExternalVolumesSettingsSection(blockStore: blockStore) }.formStyle(.grouped))
         if let i = tabs.tabViewItems.firstIndex(where: { ($0.identifier as? String) == initialTab }) {
