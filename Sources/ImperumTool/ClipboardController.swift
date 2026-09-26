@@ -24,6 +24,9 @@ final class ClipboardController {
     /// the archive never sees the blob (session-only mode) or is unavailable.
     private let blobCache = BlobCache()
     private lazy var paster = ClipPaster(blobLookup: { [weak self] id, suffix in self?.lookupBlob(id, suffix: suffix) })
+    private lazy var copyStackServer = CopyStackServer(
+        store: store, settings: settings, paster: paster,
+        commitPasted: { [weak self] clip in self?.commitPasted(clip) })
     private lazy var model = CopyStackModel(
         store: store, settings: settings,
         blobLookup: { [weak self] id, suffix in self?.lookupBlob(id, suffix: suffix) },
@@ -122,6 +125,12 @@ final class ClipboardController {
 
         store.enforce(limits: s.limits)
         lastApplied = (s.enabled, s.trigger, s.clearOnQuit)
+
+        if s.enabled && s.allowCLI {
+            if !copyStackServer.isRunning { copyStackServer.start() }
+        } else if copyStackServer.isRunning {
+            copyStackServer.stop()
+        }
     }
 
     // MARK: Capture
@@ -179,16 +188,21 @@ final class ClipboardController {
     private func paste(_ clip: Clip) {
         panel.hide()
         if paster.paste(clip) {
-            // Our own change is skipped by the watcher's veto, so move the
-            // clip to the top here: same id/pin/content, fresh capturedAt.
-            let refreshed = Clip(id: clip.id, kind: clip.kind, capturedAt: Date(),
-                                 sourceAppName: clip.sourceAppName, sourceBundleID: clip.sourceBundleID,
-                                 isPinned: clip.isPinned, title: clip.title, payload: clip.payload,
-                                 richText: clip.richText)
-            store.insert(refreshed, limits: settings.settings.limits)
+            commitPasted(clip)
         } else {
             store.delete(clip.id)
         }
+    }
+
+    /// Re-inserts `clip` at the top with a fresh `capturedAt`, keeping its
+    /// id/pin/payload/richText: our own pasteboard change is skipped by the
+    /// watcher's veto, so this is what moves a pasted clip back to the top.
+    func commitPasted(_ clip: Clip) {
+        let refreshed = Clip(id: clip.id, kind: clip.kind, capturedAt: Date(),
+                             sourceAppName: clip.sourceAppName, sourceBundleID: clip.sourceBundleID,
+                             isPinned: clip.isPinned, title: clip.title, payload: clip.payload,
+                             richText: clip.richText)
+        store.insert(refreshed, limits: settings.settings.limits)
     }
 
     // MARK: Persistence
@@ -240,6 +254,7 @@ final class ClipboardController {
     }
 
     func willTerminate() {
+        copyStackServer.stop()
         saveWork?.cancel()
         saveQueue.sync {}   // drain a pending background save before deciding what to write last
         if settings.settings.clearOnQuit { store.clearAll(); try? archive?.deleteAll() }

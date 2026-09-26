@@ -13,8 +13,11 @@ final class ClipPaster {
 
     init(blobLookup: @escaping (UUID, String) -> Data?) { self.blobLookup = blobLookup }
 
+    /// Writes `clip` to the general pasteboard in its native form. Returns
+    /// `false` (and shows a HUD) if an image clip's blob is missing, leaving
+    /// the pasteboard untouched; otherwise always returns `true`.
     @discardableResult
-    func paste(_ clip: Clip) -> Bool {
+    func write(_ clip: Clip) -> Bool {
         // Resolve everything that can fail before touching the pasteboard, so a
         // missing blob leaves the user's existing clipboard contents untouched.
         let write: (NSPasteboard) -> Void
@@ -48,8 +51,21 @@ final class ClipPaster {
         pb.clearContents()
         write(pb)
         lastOwnChangeCount = pb.changeCount
-        guard ActionRunner.ensureAccessibility() else { return true }   // clip is on the pasteboard; user can ⌘V
-        CmdVTap.postKey(9, flags: .maskCommand)
         return true
+    }
+
+    /// Posts ⌘V via the event tap, if Accessibility is granted.
+    static func postPaste() {
+        guard ActionRunner.ensureAccessibility() else { return }
+        CmdVTap.postKey(9, flags: .maskCommand)
+    }
+
+    /// Writes `clip` to the pasteboard and, on success, posts ⌘V. Returns the
+    /// write result (identical semantics to the old combined `paste`).
+    @discardableResult
+    func paste(_ clip: Clip) -> Bool {
+        let wrote = write(clip)
+        if wrote { Self.postPaste() }
+        return wrote
     }
 }

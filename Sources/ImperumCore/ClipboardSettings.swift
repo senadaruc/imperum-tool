@@ -23,6 +23,8 @@ public struct ClipboardSettings: Codable, Equatable {
     public var showFavicons = false
     public var excludedBundleIDs: [String] = ClipboardSettings.defaultExcluded
     public var paused = false
+    public var terminalPicker = true
+    public var allowCLI = true
 
     public init() {}
 
@@ -30,7 +32,7 @@ public struct ClipboardSettings: Codable, Equatable {
     public var doubleTapWindow: TimeInterval { TimeInterval(doubleTapMs) / 1000 }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, trigger, doubleTapMs, maxStack, retentionDays, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, paused
+        case enabled, trigger, doubleTapMs, maxStack, retentionDays, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, paused, terminalPicker, allowCLI
     }
 
     /// Forward-compatible: keys absent from older saved JSON keep their defaults.
@@ -47,6 +49,8 @@ public struct ClipboardSettings: Codable, Equatable {
         s.showFavicons = try c.decodeIfPresent(Bool.self, forKey: .showFavicons) ?? s.showFavicons
         s.excludedBundleIDs = try c.decodeIfPresent([String].self, forKey: .excludedBundleIDs) ?? s.excludedBundleIDs
         s.paused = try c.decodeIfPresent(Bool.self, forKey: .paused) ?? s.paused
+        s.terminalPicker = try c.decodeIfPresent(Bool.self, forKey: .terminalPicker) ?? s.terminalPicker
+        s.allowCLI = try c.decodeIfPresent(Bool.self, forKey: .allowCLI) ?? s.allowCLI
         self = s
     }
 }
