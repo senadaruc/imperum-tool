@@ -27,8 +27,18 @@ final class CopyStackModel: ObservableObject {
     /// mode, so no host list is ever written to disk).
     private let faviconCacheDir: () -> URL?
     private var thumbs: [UUID: NSImage] = [:]
+    /// Rendered RTF preview per clip id. A miss caches `nil` too (wrapped in
+    /// `.some(nil)`), so a clip whose RTF fails to parse isn't re-parsed on
+    /// every render.
+    private var richPreviews: [UUID: NSImage?] = [:]
     private let favicons = FaviconLoader()
     private var bag = Set<AnyCancellable>()
+
+    /// RTF above this size isn't rendered as a preview (the row is small;
+    /// this is meant for a short formatted snippet, not a whole document).
+    private static let maxRichPreviewBytes = 200_000
+    private static let richPreviewSize = NSSize(width: 144, height: 48)
+    private static let richPreviewPadding: CGFloat = 6
 
     init(store: ClipStore, settings: ClipboardSettingsStore, blobLookup: @escaping (UUID, String) -> Data?,
          faviconCacheDir: @escaping () -> URL?) {
@@ -42,7 +52,7 @@ final class CopyStackModel: ObservableObject {
     var selectedID: UUID? { flat.indices.contains(state.selectedIndex) ? flat[state.selectedIndex].id : nil }
     var totalCount: Int { flat.count }
 
-    func reset() { state.reset(); thumbs.removeAll(); focusGeneration += 1; recompute() }
+    func reset() { state.reset(); thumbs.removeAll(); richPreviews.removeAll(); focusGeneration += 1; recompute() }
 
     func setQuery(_ q: String) { state.setQuery(q); recompute() }
 
@@ -77,6 +87,45 @@ final class CopyStackModel: ObservableObject {
         guard let data = blobLookup(id, "thumb.png") ?? blobLookup(id, "png"),
               let img = NSImage(data: data) else { return nil }
         thumbs[id] = img
+        return img
+    }
+
+    /// A small rendered preview of a clip's `richText` (its own fonts and
+    /// colours, unstripped), for rows that carry formatting. Nil for any
+    /// clip without `richText`, oversized RTF, or RTF that fails to parse.
+    func richPreview(for clip: Clip) -> NSImage? {
+        if let cached = richPreviews[clip.id] { return cached }
+        guard let data = clip.richText, data.count <= Self.maxRichPreviewBytes,
+              let attributed = NSAttributedString(rtf: data, documentAttributes: nil) else {
+            richPreviews[clip.id] = .some(nil)
+            return nil
+        }
+        let img = Self.renderRichPreview(attributed)
+        richPreviews[clip.id] = .some(img)
+        return img
+    }
+
+    private static func renderRichPreview(_ attributed: NSAttributedString) -> NSImage? {
+        let size = richPreviewSize
+        let scale: CGFloat = 2
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        rep.size = size   // logical size at 2x backing scale
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.current = ctx
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        let drawRect = NSRect(x: richPreviewPadding, y: richPreviewPadding,
+                              width: size.width - richPreviewPadding * 2, height: size.height - richPreviewPadding * 2)
+        NSGraphicsContext.current?.saveGraphicsState()
+        NSBezierPath(rect: drawRect).addClip()
+        attributed.draw(with: drawRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], context: NSStringDrawingContext())
+        NSGraphicsContext.current?.restoreGraphicsState()
+        let img = NSImage(size: size)
+        img.addRepresentation(rep)
         return img
     }
 

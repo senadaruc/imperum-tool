@@ -64,7 +64,8 @@ struct CopyStackView: View {
                         ForEach(section.clips) { clip in
                             let index = model.indexByID[clip.id] ?? 0
                             ClipRow(clip: clip, index: index, selected: model.selectedID == clip.id,
-                                    thumbnail: model.thumbnail(for: clip), favicon: model.favicon(for: clip))
+                                    thumbnail: model.thumbnail(for: clip), favicon: model.favicon(for: clip),
+                                    richPreview: model.richPreview(for: clip))
                                 .id(clip.id)
                                 .onTapGesture { model.onPaste?(clip) }
                         }
@@ -108,6 +109,7 @@ private struct ClipRow: View {
     let selected: Bool
     let thumbnail: NSImage?
     let favicon: NSImage?
+    let richPreview: NSImage?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -118,6 +120,12 @@ private struct ClipRow: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            if let richPreview {
+                Image(nsImage: richPreview).resizable().aspectRatio(contentMode: .fill)
+                    .frame(width: 72, height: 24)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(0.15)))
+            }
             if clip.isPinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary) }
             if index < 9 { Text("⌘\(index + 1)").font(.caption.monospaced()).foregroundStyle(.secondary) }
         }
