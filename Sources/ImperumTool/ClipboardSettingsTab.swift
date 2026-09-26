@@ -11,7 +11,7 @@ struct ClipboardSettingsTab: View {
     @State private var accessibilityGranted = ActionRunner.isTrusted
     @State private var confirmClear = false
     @State private var cliInstalled = CLIInstaller.isInstalled
-    @State private var terminalStatuses: [TerminalApp: HostError?] = [:]
+    @State private var terminalStatuses: [TerminalApp: HostError] = [:]
 
     var body: some View {
         Form {
@@ -142,7 +142,7 @@ struct ClipboardSettingsTab: View {
 
     @MainActor
     private func statusText(for app: TerminalApp) -> String {
-        guard let failure = terminalStatuses[app] ?? nil else { return "Ready" }
+        guard let failure = terminalStatuses[app] else { return "Ready" }
         switch failure {
         case .unsupported: return "not supported"
         case .automationDenied: return "allow Imperum Tool in System Settings › Privacy & Security › Automation"
