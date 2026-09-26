@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import ImperumCore
+import CopyStackKit
 
 struct ClipboardSettingsTab: View {
     @ObservedObject var store: ClipboardSettingsStore
@@ -9,6 +10,8 @@ struct ClipboardSettingsTab: View {
     @State private var selectedExclusion: String?
     @State private var accessibilityGranted = ActionRunner.isTrusted
     @State private var confirmClear = false
+    @State private var cliInstalled = CLIInstaller.isInstalled
+    @State private var terminalStatuses: [TerminalApp: HostError?] = [:]
 
     var body: some View {
         Form {
@@ -42,6 +45,47 @@ struct ClipboardSettingsTab: View {
                 Toggle("Show clip count in the menu bar", isOn: $store.settings.showBadge)
             }
 
+            Section("Terminal") {
+                Toggle("Use a terminal picker when a terminal app is in front", isOn: $store.settings.terminalPicker)
+                Text("Double-tap ⌘V in Ghostty, cmux, iTerm2, kitty or Terminal opens the Copy Stack in a new window of that terminal. Warp uses the regular panel. macOS asks once per terminal to allow Imperum Tool to control it.")
+                    .font(.caption).foregroundStyle(.secondary)
+
+                Toggle("Allow command-line access (copystack)", isOn: $store.settings.allowCLI)
+                Text("Runs a private socket so the copystack command can read your history. Only your own user account can connect. Turn off to keep the history reachable from this app alone.")
+                    .font(.caption).foregroundStyle(.secondary)
+
+                SecureField("cmux socket password", text: $store.settings.cmuxSocketPassword)
+                Text("Only needed if cmux Settings has a socket password set.")
+                    .font(.caption).foregroundStyle(.secondary)
+
+                Text("Terminal status").font(.headline).padding(.top, 6)
+                ForEach(TerminalApp.allCases.filter(\.supportsPicker), id: \.self) { app in
+                    HStack {
+                        Text(app.displayName)
+                        Spacer()
+                        Text(statusText(for: app)).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
+                HStack {
+                    if cliInstalled {
+                        Button("Installed") {}.disabled(true)
+                    } else if let path = CLIInstaller.bundledExecutablePath {
+                        Button("Install command-line tool…") { installCLI(from: path) }
+                    } else {
+                        Button("Install command-line tool…") {}
+                            .disabled(true)
+                        Text("Available after installing the app bundle")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if !cliInstalled, let path = CLIInstaller.bundledExecutablePath {
+                    Text("ln -s \"\(path)\" /usr/local/bin/copystack")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
             Section("Privacy") {
                 Text("Clipboard content never leaves this Mac. Copies made in excluded applications are not captured.")
                     .font(.callout)
@@ -73,14 +117,47 @@ struct ClipboardSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { accessibilityGranted = ActionRunner.isTrusted }
+        .onAppear {
+            accessibilityGranted = ActionRunner.isTrusted
+            refreshTerminalState()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             accessibilityGranted = ActionRunner.isTrusted
+            refreshTerminalState()
         }
         .confirmationDialog("Clear the copy stack?", isPresented: $confirmClear) {
             Button("Clear All Clipboard Data", role: .destructive) { onClearAll() }
         } message: {
             Text("This removes every clip from memory and deletes the local archive.")
+        }
+    }
+
+    @MainActor
+    private func refreshTerminalState() {
+        cliInstalled = CLIInstaller.isInstalled
+        for app in TerminalApp.allCases where app.supportsPicker {
+            terminalStatuses[app] = TerminalHosts.lastFailure[app]
+        }
+    }
+
+    @MainActor
+    private func statusText(for app: TerminalApp) -> String {
+        guard let failure = terminalStatuses[app] ?? nil else { return "Ready" }
+        switch failure {
+        case .unsupported: return "not supported"
+        case .automationDenied: return "allow Imperum Tool in System Settings › Privacy & Security › Automation"
+        case .notRunning: return "not running"
+        case .launchFailed(let msg): return msg
+        case .timeout: return "picker did not start"
+        }
+    }
+
+    private func installCLI(from path: String) {
+        switch CLIInstaller.install(bundledExecutablePath: path) {
+        case .success:
+            cliInstalled = CLIInstaller.isInstalled
+        case .failure(let error):
+            NSLog("Imperum Tool: copystack CLI install failed: \(error.localizedDescription)")
         }
     }
 
@@ -106,5 +183,47 @@ struct ClipboardSettingsTab: View {
     static func icon(for bundleID: String) -> NSImage {
         if let u = url(for: bundleID) { return NSWorkspace.shared.icon(forFile: u.path) }
         return NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil) ?? NSImage()
+    }
+}
+
+/// Installs the `/usr/local/bin/copystack` symlink pointing at this bundle's
+/// `copystack` auxiliary executable, via the same NSAppleScript
+/// "administrator privileges" pattern as `PowerMetricsClient.install`.
+enum CLIInstaller {
+    static let linkPath = "/usr/local/bin/copystack"
+
+    /// Nil in a dev build where the app isn't bundled with a `copystack` auxiliary executable.
+    static var bundledExecutablePath: String? {
+        Bundle.main.url(forAuxiliaryExecutable: "copystack")?.path
+    }
+
+    /// True when the symlink exists and resolves to this bundle's `copystack` binary.
+    static var isInstalled: Bool {
+        guard let target = bundledExecutablePath else { return false }
+        guard let resolved = try? FileManager.default.destinationOfSymbolicLink(atPath: linkPath) else { return false }
+        // `destinationOfSymbolicLink` may return a relative path; resolve it against the link's directory.
+        let resolvedAbsolute = resolved.hasPrefix("/") ? resolved
+            : ((linkPath as NSString).deletingLastPathComponent as NSString).appendingPathComponent(resolved)
+        return resolvedAbsolute == target
+    }
+
+    static func install(bundledExecutablePath path: String) -> Result<Void, Error> {
+        // Single-quote the paths (shell level) so this needs no nested double-quote
+        // escaping; a literal single quote in either path is escaped the POSIX way.
+        func shellQuote(_ s: String) -> String { "'\(s.replacingOccurrences(of: "'", with: "'\\''"))'" }
+        let cmd = "mkdir -p /usr/local/bin && ln -sf \(shellQuote(path)) \(shellQuote(linkPath))"
+        // Escape once more for the AppleScript string literal that wraps the whole command.
+        let escaped = cmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let src = "do shell script \"\(escaped)\" with administrator privileges"
+        var err: NSDictionary?
+        guard let script = NSAppleScript(source: src) else {
+            return .failure(NSError(domain: "ImperumTool", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not build admin script."]))
+        }
+        script.executeAndReturnError(&err)
+        if let err {
+            return .failure(NSError(domain: "ImperumTool", code: 1,
+                                     userInfo: [NSLocalizedDescriptionKey: (err[NSAppleScript.errorMessage] as? String) ?? "Admin command failed."]))
+        }
+        return .success(())
     }
 }
