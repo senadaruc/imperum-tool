@@ -7,7 +7,7 @@ import ImperumCore
 /// 256-bit archive key in the login Keychain. Generated on first use; `rotate()`
 /// replaces it (the caller must discard the old archive first).
 final class KeychainArchiveKey: ArchiveKeyProvider {
-    enum KeychainError: Error { case status(OSStatus) }
+    enum KeychainError: Error { case status(OSStatus), malformedItem }
     private let service: String
     private let account: String
     private var cached: SymmetricKey?
@@ -44,7 +44,9 @@ final class KeychainArchiveKey: ArchiveKeyProvider {
         let st = SecItemCopyMatching(q as CFDictionary, &out)
         if st == errSecItemNotFound { return nil }
         guard st == errSecSuccess else { throw KeychainError.status(st) }
-        return out as? Data
+        guard let data = out as? Data else { throw KeychainError.malformedItem }
+        guard data.count == 32 else { throw KeychainError.malformedItem }
+        return data
     }
 
     private func baseQuery() -> [String: Any] {
