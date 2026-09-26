@@ -71,6 +71,19 @@ final class ClipCaptureTests: XCTestCase {
         XCTAssertEqual(id, c.clip.id); XCTAssertEqual(ut, "public.png"); XCTAssertEqual(w, 10); XCTAssertEqual(h, 20)
     }
 
+    func testSameImageBytesProduceSameIdDifferentBytesDiffer() {
+        let pb1 = FakePasteboard(changeCount: 1, image: PasteboardImage(data: Data([1, 2, 3]), width: 1, height: 1))
+        let pb2 = FakePasteboard(changeCount: 2, image: PasteboardImage(data: Data([1, 2, 3]), width: 1, height: 1))
+        let c1 = ClipCapture.capture(from: pb1, context: ctx())!
+        let c2 = ClipCapture.capture(from: pb2, context: ctx())!
+        XCTAssertEqual(c1.clip.id, c2.clip.id)
+        XCTAssertEqual(c1.clip.payload, c2.clip.payload)
+
+        let pb3 = FakePasteboard(changeCount: 1, image: PasteboardImage(data: Data([1, 2, 4]), width: 1, height: 1))
+        let c3 = ClipCapture.capture(from: pb3, context: ctx())!
+        XCTAssertNotEqual(c1.clip.id, c3.clip.id)
+    }
+
     func testColorObjectBecomesHexTextClip() {
         let pb = FakePasteboard(color: "#FF0080", text: nil)
         let c = ClipCapture.capture(from: pb, context: ctx())!

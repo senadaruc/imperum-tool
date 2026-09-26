@@ -1,4 +1,5 @@
 // Sources/ImperumCore/ClipCapture.swift
+import CryptoKit
 import Foundation
 
 /// The subset of NSPasteboard the capture pipeline needs, so the pipeline
@@ -56,6 +57,16 @@ public struct CapturedClip: Equatable {
 }
 
 public enum ClipCapture {
+    /// Derives a stable id from content bytes, so identical images dedupe
+    /// the same way identical text does (`ClipContentKey` compares the
+    /// `.blob` payload, id included).
+    private static func contentID(_ data: Data) -> UUID {
+        let digest = SHA256.hash(data: data)
+        let bytes = Array(digest.prefix(16))
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
     /// Richest representation first: files → image → colour → string.
     public static func capture(from pb: PasteboardReading, context: CaptureContext, now: Date = Date()) -> CapturedClip? {
         if CaptureVeto.reason(types: pb.types, changeCount: pb.changeCount, context: context) != nil { return nil }
@@ -68,7 +79,7 @@ public enum ClipCapture {
                                            title: ClipClassifier.title(forFiles: files), payload: .fileURLs(files)), blobData: nil)
         }
         if let img = pb.imagePNG() {
-            let id = UUID()
+            let id = contentID(img.data)
             let clip = Clip(id: id, kind: .image, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
                             title: ClipClassifier.title(imageWidth: img.width, height: img.height),
                             payload: .blob(id: id, utType: "public.png", width: img.width, height: img.height))

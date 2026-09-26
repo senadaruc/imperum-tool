@@ -26,7 +26,6 @@ public final class ClipStore: ObservableObject {
             stored = Clip(id: old.id, kind: old.kind, capturedAt: incoming.capturedAt,
                           sourceAppName: incoming.sourceAppName, sourceBundleID: incoming.sourceBundleID,
                           isPinned: old.isPinned, title: old.title, payload: old.payload)
-            if let dup = incoming.blobID, dup != old.blobID { onBlobsDropped?([dup]) }
         }
         clips.insert(stored, at: 0)
         enforce(limits: limits, now: now, notify: false)

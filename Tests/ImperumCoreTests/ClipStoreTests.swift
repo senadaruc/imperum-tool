@@ -48,6 +48,20 @@ final class ClipStoreTests: XCTestCase {
         XCTAssertEqual(Set(s.clips.map(\.title)), ["old-pinned", "future", "fresh"])
     }
 
+    func testSameImageDedupesKeepingOneClip() {
+        let s = ClipStore()
+        var dropped: [UUID] = []
+        s.onBlobsDropped = { dropped += $0 }
+        let blob = UUID()
+        let payload = ClipPayload.blob(id: blob, utType: "public.png", width: 1, height: 1)
+        s.insert(Clip(id: blob, kind: .image, capturedAt: base, sourceAppName: "P", sourceBundleID: nil,
+                     title: "Image 1×1", payload: payload), limits: limits, now: base)
+        s.insert(Clip(id: blob, kind: .image, capturedAt: base.addingTimeInterval(10), sourceAppName: "P", sourceBundleID: nil,
+                     title: "Image 1×1", payload: payload), limits: limits, now: base)
+        XCTAssertEqual(s.clips.count, 1)
+        XCTAssertTrue(dropped.isEmpty)
+    }
+
     func testDeleteClearAllAndBlobCallback() {
         let s = ClipStore()
         var dropped: [UUID] = []
