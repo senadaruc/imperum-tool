@@ -31,16 +31,20 @@ public enum ClipCategory: String, CaseIterable, Equatable {
 }
 
 public enum ClipFilter {
-    /// Category first, then a case-insensitive substring match on the title
-    /// and, for text-family clips, the body. Whitespace-only queries match all.
+    /// Category first, then a case- and diacritic-insensitive substring match
+    /// on the title and, for text-family clips, the body. Whitespace-only
+    /// queries match all.
     public static func apply(_ clips: [Clip], category: ClipCategory, query: String) -> [Clip] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        func matches(_ s: String) -> Bool {
+            s.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
         return clips.filter { c in
             if let k = category.kind, c.kind != k { return false }
             if q.isEmpty { return true }
-            if c.title.lowercased().contains(q) { return true }
-            if case .text(let body) = c.payload, body.lowercased().contains(q) { return true }
-            if case .fileURLs(let urls) = c.payload, urls.contains(where: { $0.lastPathComponent.lowercased().contains(q) }) { return true }
+            if matches(c.title) { return true }
+            if case .text(let body) = c.payload, matches(body) { return true }
+            if case .fileURLs(let urls) = c.payload, urls.contains(where: { matches($0.lastPathComponent) }) { return true }
             return false
         }
     }
@@ -65,16 +69,20 @@ public enum ClipGrouper {
         var dayOrder: [Date] = []
         var byDay: [Date: [Clip]] = [:]
         for c in clips where !c.isPinned {
-            let day = calendar.startOfDay(for: c.capturedAt)
+            // Any day at or after today (including "future" clips from a
+            // clock set back) collapses into the single Today bucket so
+            // Task 12's title-keyed ForEach never sees duplicate "Today"s.
+            let rawDay = calendar.startOfDay(for: c.capturedAt)
+            let day = rawDay >= today ? today : rawDay
             if byDay[day] == nil { dayOrder.append(day) }
             byDay[day, default: []].append(c)
         }
         let fmt = DateFormatter()
-        fmt.calendar = calendar; fmt.timeZone = calendar.timeZone; fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.calendar = calendar; fmt.timeZone = calendar.timeZone; fmt.locale = calendar.locale ?? .current
         fmt.dateStyle = .long; fmt.timeStyle = .none
         for day in dayOrder.sorted(by: >) {
             let title: String
-            if day >= today { title = "Today" }              // includes "future" clips
+            if day == today { title = "Today" }
             else if day == yesterday { title = "Yesterday" }
             else { title = fmt.string(from: day) }
             out.append(ClipSection(title: title, clips: byDay[day]!))

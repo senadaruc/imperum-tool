@@ -8,7 +8,10 @@ private func clip(_ kind: ClipKind, _ title: String, text: String? = nil, at t: 
 
 final class ClipQueryTests: XCTestCase {
     private var cal: Calendar {
-        var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        c.locale = Locale(identifier: "en_US")
+        return c
     }
 
     func testCategoriesMapToKinds() {
@@ -25,6 +28,11 @@ final class ClipQueryTests: XCTestCase {
         XCTAssertEqual(ClipFilter.apply(clips, category: .all, query: "x.IO").map(\.title), ["https://x.io"])
         XCTAssertEqual(ClipFilter.apply(clips, category: .emails, query: "alpha").count, 0)
         XCTAssertEqual(ClipFilter.apply(clips, category: .all, query: "  ").count, 3)
+    }
+
+    func testFilterIsDiacriticInsensitive() {
+        let clips = [clip(.text, "Alpha", at: 1)]
+        XCTAssertEqual(ClipFilter.apply(clips, category: .all, query: "ALPHÁ").map(\.title), ["Alpha"])
     }
 
     func testSectionsPinnedTodayYesterdayOlder() {
@@ -47,6 +55,16 @@ final class ClipQueryTests: XCTestCase {
         let justBeforeMidnight = now.addingTimeInterval(-3600)         // 23:30 on the 14th, Amsterdam
         let s = ClipGrouper.sections([clip(.text, "x", at: justBeforeMidnight.timeIntervalSince1970)], now: now, calendar: c)
         XCTAssertEqual(s.map(\.title), ["Yesterday"])
+    }
+
+    func testFutureStampedClipsCollapseIntoSingleTodaySection() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)          // 2023-11-14 22:13 UTC
+        let future = now.timeIntervalSince1970 + 86_400
+        let recent = now.timeIntervalSince1970 - 3600
+        let clips = [clip(.text, "f", at: future), clip(.text, "t", at: recent)]
+        let s = ClipGrouper.sections(clips, now: now, calendar: cal)
+        XCTAssertEqual(s.map(\.title), ["Today"])
+        XCTAssertEqual(s.map { $0.clips.map(\.title) }, [["f", "t"]])
     }
 
     func testEmptyInputGivesNoSections() {
