@@ -12,10 +12,18 @@ public enum ClipClassifier {
     private static let funcColor = try! NSRegularExpression(pattern: #"^(?:rgb|rgba|hsl|hsla)\(\s*[^()]+\)$"#, options: [.caseInsensitive])
     private static let email = try! NSRegularExpression(pattern: #"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$"#)
 
+    /// A link/email/colour string is never longer than this; above it we skip
+    /// the trim + regex work entirely (`classifyText` runs on every clipboard
+    /// change, so a multi-MB paste must not pay for a full-string regex scan).
+    private static let maxClassifiableLength = 4096
+
     /// `nil` means "drop it" (empty / whitespace only).
     public static func classifyText(_ raw: String) -> ClipKind? {
+        // Cheap check: returns at the first non-whitespace character instead
+        // of trimming (which would allocate a full copy of a huge string).
+        guard raw.contains(where: { !$0.isWhitespace }) else { return nil }
+        if raw.utf8.count > maxClassifiableLength { return .text }
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !s.isEmpty else { return nil }
         if isColor(s) { return .color }
         if isLink(s) { return .link }
         if matches(email, s) { return .email }
@@ -28,15 +36,30 @@ public enum ClipClassifier {
     }
 
     public static func title(forText raw: String) -> String {
-        // Scan only until the first non-empty line: a multi-MB clip must not be
-        // trimmed or split as a whole.
-        var line = Substring()
-        for l in raw.split(separator: "\n", maxSplits: 8, omittingEmptySubsequences: true) {
-            let t = l.drop(while: { $0.isWhitespace })
-            if !t.isEmpty { line = t; break }
+        // Walk forward one Character at a time so cost is bounded by
+        // maxTitleLength, never by the length of the input: a multi-MB clip
+        // (one giant line, or many blank lines) must title instantly.
+        // `Character.isNewline` (not literal "\n") so \r, \r\n and U+2028
+        // are all recognised as line breaks.
+        var idx = raw.startIndex
+        let end = raw.endIndex
+        // Skip leading blank lines and leading whitespace on the first
+        // non-blank line.
+        while idx < end, raw[idx].isWhitespace {
+            idx = raw.index(after: idx)
         }
-        let clipped = line.prefix(maxTitleLength)
-        return String(clipped).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard idx < end else { return "" }
+        var result = ""
+        result.reserveCapacity(maxTitleLength)
+        var count = 0
+        while idx < end, count < maxTitleLength {
+            let c = raw[idx]
+            if c.isNewline { break }
+            result.append(c)
+            count += 1
+            idx = raw.index(after: idx)
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     public static func title(forFiles urls: [URL]) -> String {

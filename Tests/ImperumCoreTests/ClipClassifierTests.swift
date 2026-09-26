@@ -1,4 +1,5 @@
 // Tests/ImperumCoreTests/ClipClassifierTests.swift
+import Foundation
 import XCTest
 @testable import ImperumCore
 
@@ -51,11 +52,30 @@ final class ClipClassifierTests: XCTestCase {
         XCTAssertEqual(ClipClassifier.title(forFiles: [URL(fileURLWithPath: "/a/package.json")]), "package.json")
         XCTAssertEqual(ClipClassifier.title(forFiles: [URL(fileURLWithPath: "/a/one"), URL(fileURLWithPath: "/a/two")]), "one +1 more")
         XCTAssertEqual(ClipClassifier.title(imageWidth: 256, height: 256), "Image 256×256")
+        // CRLF (and lone CR) must be recognised as a line break, not just "\n".
+        XCTAssertEqual(ClipClassifier.title(forText: "first\r\nsecond"), "first")
+        // 9 whitespace-only lines, then the real content.
+        let manyBlankLines = String(repeating: "   \n", count: 9) + "a\nb"
+        XCTAssertEqual(ClipClassifier.title(forText: manyBlankLines), "a")
     }
 
-    func testTitleOfHugeTextIsFast() {
-        let huge = String(repeating: "x", count: 5_000_000) + "\nrest"
-        measure { _ = ClipClassifier.title(forText: huge) }
-        XCTAssertEqual(ClipClassifier.title(forText: huge).count, 120)
+    /// Regression test: must fail before the fix (unbounded scan of the
+    /// first line) and pass after it (bounded to `maxTitleLength`).
+    /// `measure` alone can't fail without a stored baseline, so this uses a
+    /// hard wall-clock bound instead.
+    func testTitleOfHugeSingleLineIsFast() {
+        let huge = String(repeating: "x", count: 50_000_000) // no newline at all
+        let start = DispatchTime.now()
+        let result = ClipClassifier.title(forText: huge)
+        let elapsedSeconds = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000_000
+        XCTAssertEqual(result.count, 120)
+        XCTAssertLessThan(elapsedSeconds, 0.010, "title(forText:) must not scan the whole input")
+    }
+
+    func testClassifyHugeStringsAreFast() {
+        let hugeLink = "https://x.io/" + String(repeating: "a", count: 5_000_000)
+        XCTAssertEqual(ClipClassifier.classifyText(hugeLink), .text)
+        let hugeWhitespace = String(repeating: " ", count: 5_000_000)
+        XCTAssertNil(ClipClassifier.classifyText(hugeWhitespace))
     }
 }
