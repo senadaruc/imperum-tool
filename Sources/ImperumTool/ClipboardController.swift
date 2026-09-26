@@ -38,7 +38,12 @@ final class ClipboardController {
     /// Last settings values `apply(_:)` actually acted on, so repeated calls
     /// (the settings sink fires on every edit) don't restart the tap or wipe
     /// the archive redundantly.
-    private var lastApplied: (enabled: Bool, trigger: ClipboardTrigger, doubleTapMs: Int, clearOnQuit: Bool)?
+    private var lastApplied: (enabled: Bool, trigger: ClipboardTrigger, clearOnQuit: Bool)?
+
+    /// True when `tap.start` returned false because Accessibility isn't
+    /// granted yet. Cleared, and the tap restarted, once the app becomes
+    /// active again and trust has been granted.
+    private var tapNeedsAccessibility = false
 
     static let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Imperum Tool/Clipboard", isDirectory: true)
@@ -55,8 +60,20 @@ final class ClipboardController {
         statusItem.onShow = { [weak self] in self?.showPanel(anchor: .mainScreen) }
         statusItem.onClear = { [weak self] in self?.confirmClear() }
         statusItem.onSettings = { SettingsTabs.requestedTab = "clipboard"; NSApp.sendAction(#selector(AppController.showSettings), to: nil, from: nil) }
+        statusItem.onGrantAccessibility = { ActionRunner.ensureAccessibility() }
         ActionRunner.showCopyStack = { [weak self] in self?.showPanel(anchor: .mainScreen) }
         settings.$settings.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] s in self?.apply(s) }.store(in: &bag)
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.retryTapIfTrusted()
+        }
+    }
+
+    private func retryTapIfTrusted() {
+        guard tapNeedsAccessibility, ActionRunner.isTrusted else { return }
+        tapNeedsAccessibility = false
+        statusItem.needsAccessibility = false
+        lastApplied = nil   // force apply(_:) to restart the tap
+        apply(settings.settings)
     }
 
     // MARK: Settings → behaviour
@@ -65,12 +82,16 @@ final class ClipboardController {
         statusItem.setVisible(s.enabled && s.showBadge)
         tap.window = s.doubleTapWindow
 
-        let triggerChanged = lastApplied.map { $0.enabled != s.enabled || $0.trigger != s.trigger || $0.doubleTapMs != s.doubleTapMs } ?? true
+        let triggerChanged = lastApplied.map { $0.enabled != s.enabled || $0.trigger != s.trigger } ?? true
         if triggerChanged {
             if s.enabled {
-                tap.start(doubleTap: s.trigger.usesDoubleTap, hotkey: s.trigger.usesHotkey)
+                let ok = tap.start(doubleTap: s.trigger.usesDoubleTap, hotkey: s.trigger.usesHotkey)
+                tapNeedsAccessibility = !ok
+                statusItem.needsAccessibility = !ok
             } else {
                 tap.stop()
+                tapNeedsAccessibility = false
+                statusItem.needsAccessibility = false
             }
         }
         if s.enabled { startPolling() } else { stopPolling(); panel.hide() }
@@ -79,7 +100,7 @@ final class ClipboardController {
         if clearOnQuitTurnedOn { try? archive?.deleteAll() }   // session-only from now on: nothing left on disk
 
         store.enforce(limits: s.limits)
-        lastApplied = (s.enabled, s.trigger, s.doubleTapMs, s.clearOnQuit)
+        lastApplied = (s.enabled, s.trigger, s.clearOnQuit)
     }
 
     // MARK: Capture

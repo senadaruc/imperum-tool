@@ -9,6 +9,12 @@ final class ClipboardStatusItem: NSObject, NSMenuDelegate {
     var onShow: (() -> Void)?
     var onClear: (() -> Void)?
     var onSettings: (() -> Void)?
+    var onGrantAccessibility: (() -> Void)?
+
+    /// Set by the controller when the double-tap ⌘V tap could not be
+    /// installed for lack of Accessibility trust. Shows a menu item asking
+    /// the user to grant it.
+    var needsAccessibility = false
 
     private var item: NSStatusItem?
     private let store: ClipStore
@@ -17,6 +23,8 @@ final class ClipboardStatusItem: NSObject, NSMenuDelegate {
     private let countLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let pauseItem = NSMenuItem(title: "Pause Capture", action: #selector(togglePause), keyEquivalent: "")
     private let showItem = NSMenuItem(title: "Show Copy Stack", action: #selector(show), keyEquivalent: "")
+    private let grantAccessibilityItem = NSMenuItem(title: "Grant Accessibility to enable ⌘V…",
+                                                    action: #selector(grantAccessibility), keyEquivalent: "")
 
     init(store: ClipStore, settings: ClipboardSettingsStore) {
         self.store = store; self.settings = settings
@@ -45,6 +53,8 @@ final class ClipboardStatusItem: NSObject, NSMenuDelegate {
         m.addItem(.separator())
         showItem.target = self
         m.addItem(showItem)
+        grantAccessibilityItem.target = self
+        m.addItem(grantAccessibilityItem)
         let clear = NSMenuItem(title: "Clear Stack…", action: #selector(clear), keyEquivalent: ""); clear.target = self
         m.addItem(clear)
         pauseItem.target = self
@@ -62,6 +72,7 @@ final class ClipboardStatusItem: NSObject, NSMenuDelegate {
         pauseItem.title = settings.settings.paused ? "Resume Capture" : "Pause Capture"
         showItem.keyEquivalent = settings.settings.trigger.usesHotkey ? "v" : ""
         showItem.keyEquivalentModifierMask = [.command, .shift]
+        grantAccessibilityItem.isHidden = !needsAccessibility
     }
 
     private func redraw() {
@@ -89,4 +100,5 @@ final class ClipboardStatusItem: NSObject, NSMenuDelegate {
     @objc private func clear() { onClear?() }
     @objc private func openSettings() { onSettings?() }
     @objc private func togglePause() { settings.settings.paused.toggle() }
+    @objc private func grantAccessibility() { onGrantAccessibility?() }
 }
