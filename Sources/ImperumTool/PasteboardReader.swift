@@ -38,6 +38,12 @@ final class NSPasteboardReader: PasteboardReading {
     }
 
     func string() -> String? { pb.string(forType: .string) }
+
+    /// Only `public.rtf`. If the pasteboard offers rich text solely as
+    /// `com.apple.flat-rtfd` (RTFD, which can embed attachments), this
+    /// returns nil — RTFD is out of scope for now; the plain string is
+    /// still captured.
+    func rtf() -> Data? { pb.data(forType: .rtf) }
 }
 
 enum ImageThumbnail {

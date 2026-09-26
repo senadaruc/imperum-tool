@@ -12,6 +12,10 @@ public protocol PasteboardReading {
     func imagePNG() -> PasteboardImage?
     func colorHex() -> String?
     func string() -> String?
+    /// RTF bytes for `public.rtf`, if present. `ImperumTool`'s reader
+    /// returns nil for RTFD-with-attachments (`com.apple.flat-rtfd`
+    /// only) — out of scope for now.
+    func rtf() -> Data?
 }
 
 public struct PasteboardImage: Equatable {
@@ -92,6 +96,20 @@ public enum ClipCapture {
     /// not just a browser image export's incidental URL string.
     private static let richTextTypes: Set<String> = ["public.rtf", "com.apple.flat-rtfd"]
 
+    /// An RTF companion is capped at this many bytes; above it the plain
+    /// text is still captured, just without formatting.
+    public static let maxRichTextBytes = 1_000_000
+
+    /// The RTF companion for a text-family clip, or nil. Only consulted on
+    /// the text-wins path for text/link/email/color-fallback content — never
+    /// for a bare-URL image export, a colour, a file, or an image, since
+    /// none of those paths call this.
+    private static func richTextIfPresent(from pb: PasteboardReading) -> Data? {
+        guard pb.types.contains("public.rtf") else { return nil }
+        guard let data = pb.rtf(), data.count <= maxRichTextBytes else { return nil }
+        return data
+    }
+
     /// Richest representation first: files → text-vs-image → colour → string.
     ///
     /// Word, Pages, Mail and browsers (on a text selection) put a bitmap
@@ -142,9 +160,11 @@ public enum ClipCapture {
                                                title: norm, payload: .text(norm)), blobData: nil)
             }
             return CapturedClip(clip: Clip(kind: .text, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
-                                           title: ClipClassifier.title(forText: text), payload: .text(text)), blobData: nil)
+                                           title: ClipClassifier.title(forText: text), payload: .text(text),
+                                           richText: richTextIfPresent(from: pb)), blobData: nil)
         }
         return CapturedClip(clip: Clip(kind: kind, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
-                                       title: ClipClassifier.title(forText: text), payload: .text(text)), blobData: nil)
+                                       title: ClipClassifier.title(forText: text), payload: .text(text),
+                                       richText: richTextIfPresent(from: pb)), blobData: nil)
     }
 }

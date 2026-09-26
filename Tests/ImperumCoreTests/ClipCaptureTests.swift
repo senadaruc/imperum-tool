@@ -2,6 +2,10 @@
 import XCTest
 @testable import ImperumCore
 
+/// Tracks whether `rtf()` was called, via a reference type so a `let`
+/// (immutable, value-type) `FakePasteboard` can still record it.
+private final class ReadFlag { var read = false }
+
 private struct FakePasteboard: PasteboardReading {
     var changeCount = 1
     var types: [String] = ["public.utf8-plain-text"]
@@ -9,6 +13,8 @@ private struct FakePasteboard: PasteboardReading {
     var image: PasteboardImage? = nil
     var color: String? = nil
     var text: String? = nil
+    var rtfData: Data? = nil
+    let rtfFlag = ReadFlag()
     /// When true, every read method fails the test: proves capture vetoes
     /// BEFORE touching any content, not just that it discards what it read.
     var failOnRead = false
@@ -16,6 +22,7 @@ private struct FakePasteboard: PasteboardReading {
     func imagePNG() -> PasteboardImage? { if failOnRead { XCTFail("content read on a vetoed change") }; return image }
     func colorHex() -> String? { if failOnRead { XCTFail("content read on a vetoed change") }; return color }
     func string() -> String? { if failOnRead { XCTFail("content read on a vetoed change") }; return text }
+    func rtf() -> Data? { if failOnRead { XCTFail("content read on a vetoed change") }; rtfFlag.read = true; return rtfData }
 }
 
 private func ctx(excluded: [String] = [], paused: Bool = false, own: Int? = nil, front: String? = "com.apple.Notes") -> CaptureContext {
@@ -107,6 +114,32 @@ final class ClipCaptureTests: XCTestCase {
         let c = ClipCapture.capture(from: pb, context: ctx())!
         XCTAssertEqual(c.clip.kind, .link)
         XCTAssertNil(c.blobData)
+    }
+
+    func testTextWithRTFCarriesRichText() {
+        let rtf = Data("{\\rtf1 hello}".utf8)
+        let pb = FakePasteboard(types: ["public.utf8-plain-text", "public.rtf"],
+                                text: "hello formatted", rtfData: rtf)
+        let c = ClipCapture.capture(from: pb, context: ctx())!
+        XCTAssertEqual(c.clip.kind, .text)
+        XCTAssertEqual(c.clip.richText, rtf)
+    }
+
+    func testOversizedRTFIsDroppedButTextKept() {
+        let huge = Data(repeating: 0x41, count: 1_500_000)
+        let pb = FakePasteboard(types: ["public.utf8-plain-text", "public.rtf"],
+                                text: "big", rtfData: huge)
+        let c = ClipCapture.capture(from: pb, context: ctx())!
+        XCTAssertEqual(c.clip.kind, .text)
+        XCTAssertEqual(c.clip.payload, .text("big"))
+        XCTAssertNil(c.clip.richText)
+    }
+
+    func testImageCopyDoesNotReadRTF() {
+        let pb = FakePasteboard(image: PasteboardImage(data: Data([1, 2, 3]), width: 5, height: 5))
+        let c = ClipCapture.capture(from: pb, context: ctx())!
+        XCTAssertEqual(c.clip.kind, .image)
+        XCTAssertFalse(pb.rtfFlag.read)
     }
 
     func testSameImageBytesProduceSameIdDifferentBytesDiffer() {
