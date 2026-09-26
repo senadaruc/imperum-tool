@@ -3,12 +3,49 @@ import Darwin
 
 /// Errors raised by `SocketServer` and `SocketClient`.
 public enum SocketError: Error, Equatable {
+    /// `start()` was called on an instance that is already running.
+    case alreadyStarted
+    case socketCreate(errno: Int32)
     case bind(errno: Int32)
+    case chmod(errno: Int32)
     case listen(errno: Int32)
     case connect(errno: Int32)
     case closed
     case tooLong
     case badResponse
+}
+
+/// Reads once into `buffer`, retrying automatically on `EINTR`. Returns the
+/// number of bytes read (0 = EOF, negative = a real error, with `errno` set).
+private func readRetryingEINTR(_ fd: Int32, into buffer: UnsafeMutableRawBufferPointer) -> Int {
+    while true {
+        let n = read(fd, buffer.baseAddress, buffer.count)
+        if n < 0 && errno == EINTR { continue }
+        return n
+    }
+}
+
+/// Writes `data` followed by a trailing `"\n"` to `fd`, retrying on `EINTR`
+/// and looping over partial writes. Returns `false` on any real error or
+/// short write that can't be recovered from (e.g. the peer closed).
+private func writeLineRetryingEINTR(fd: Int32, data: Data) -> Bool {
+    var payload = data
+    payload.append(0x0A)
+    return payload.withUnsafeBytes { rawBuffer -> Bool in
+        guard let base = rawBuffer.baseAddress else { return true }
+        var totalWritten = 0
+        let count = rawBuffer.count
+        while totalWritten < count {
+            let n = write(fd, base + totalWritten, count - totalWritten)
+            if n < 0 {
+                if errno == EINTR { continue }
+                return false
+            }
+            if n == 0 { return false }
+            totalWritten += n
+        }
+        return true
+    }
 }
 
 /// A Unix-domain socket server speaking the copystack newline-delimited
@@ -30,7 +67,6 @@ public final class SocketServer {
 
     private let stateLock = NSLock()
     private var listenerFD: Int32 = -1
-    private var acceptThread: Thread?
     private var nextConnectionID: ConnectionID = 0
     private var openConnectionFDs: [ConnectionID: Int32] = [:]
     private var running = false
@@ -55,13 +91,32 @@ public final class SocketServer {
         return running
     }
 
+    /// Starts listening. Throws `.alreadyStarted` if this instance is already
+    /// running (call `stop()` first to restart it).
     public func start() throws {
-        // Remove a stale socket file left behind by a previous run.
-        unlink(path)
+        stateLock.lock()
+        guard !running else {
+            stateLock.unlock()
+            throw SocketError.alreadyStarted
+        }
+        stateLock.unlock()
+
+        // A file already at `path` might be a live instance's socket, not
+        // debris from a crash. Probe it with connect(): success means
+        // someone is actually listening, so refuse to steal the path
+        // (EADDRINUSE); a failed probe (ECONNREFUSED: nothing listening,
+        // ENOENT: raced away, or any other odd failure) means it's safe to
+        // remove and rebind.
+        if FileManager.default.fileExists(atPath: path) {
+            if SocketServer.probeExistingSocketIsLive(path: path) {
+                throw SocketError.bind(errno: EADDRINUSE)
+            }
+            unlink(path)
+        }
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
-            throw SocketError.bind(errno: errno)
+            throw SocketError.socketCreate(errno: errno)
         }
         SocketServer.setNoSigPipe(fd)
 
@@ -80,7 +135,7 @@ public final class SocketServer {
             let chmodErrno = errno
             close(fd)
             unlink(path)
-            throw SocketError.bind(errno: chmodErrno)
+            throw SocketError.chmod(errno: chmodErrno)
         }
 
         guard listen(fd, 8) == 0 else {
@@ -99,10 +154,17 @@ public final class SocketServer {
             self?.acceptLoop(listenerFD: fd)
         }
         thread.name = "copystack.socket.accept"
-        acceptThread = thread
         thread.start()
     }
 
+    /// Stops accepting new connections and shuts down every currently open
+    /// one, then removes the socket file. Idempotent.
+    ///
+    /// Note: this only guarantees fds are shut down and the accept loop
+    /// stops promptly (see the test that asserts it returns within a
+    /// second) — it does not block until every connection thread has
+    /// finished delivering its `onClose` callback, which may therefore
+    /// fire slightly after `stop()` has already returned to its caller.
     public func stop() {
         stateLock.lock()
         guard running else {
@@ -112,113 +174,90 @@ public final class SocketServer {
         running = false
         let fd = listenerFD
         listenerFD = -1
-        let fdsToClose = Array(openConnectionFDs.values)
-        openConnectionFDs.removeAll()
+        // Shut down every still-open connection while holding the lock, but
+        // leave their entries in `openConnectionFDs` in place. Each
+        // connection's own thread removes its entry (also under this lock)
+        // immediately before it closes its fd — see `handleConnection` —
+        // so serializing on this lock rules out a window where a fd number
+        // could be closed and reused elsewhere in the process before we've
+        // finished signalling every connection we know about here.
+        for connFD in openConnectionFDs.values {
+            shutdown(connFD, SHUT_RDWR)
+        }
         stateLock.unlock()
 
         if fd >= 0 {
-            // A client's connect() can succeed and sit in the kernel accept
-            // backlog before our accept loop thread calls accept() on it.
-            // Drain any such pending connections here so their onConnect/
-            // onClose still fire, before we stop accepting altogether.
-            drainPendingConnections(listenerFD: fd)
             shutdown(fd, SHUT_RDWR)
             close(fd)
         }
-        for connFD in fdsToClose {
-            shutdown(connFD, SHUT_RDWR)
-        }
         unlink(path)
-    }
-
-    /// Non-blocking accept loop used only from `stop()`, to pull any
-    /// already-established connections out of the backlog before the
-    /// listener socket is torn down. Setting the fd non-blocking here also
-    /// unblocks a concurrent blocking `accept()` call in `acceptLoop`, since
-    /// the flag applies to the shared open file description.
-    private func drainPendingConnections(listenerFD: Int32) {
-        let flags = fcntl(listenerFD, F_GETFL, 0)
-        guard flags >= 0 else { return }
-        _ = fcntl(listenerFD, F_SETFL, flags | O_NONBLOCK)
-
-        while true {
-            var addr = sockaddr()
-            var len = socklen_t(MemoryLayout<sockaddr>.size)
-            let clientFD = withUnsafeMutablePointer(to: &addr) { ptr -> Int32 in
-                accept(listenerFD, ptr, &len)
-            }
-            guard clientFD >= 0 else { break }
-
-            SocketServer.setNoSigPipe(clientFD)
-            var peerCred = xucred()
-            var credLen = socklen_t(MemoryLayout<xucred>.size)
-            let credResult = getsockopt(clientFD, 0 /* SOL_LOCAL */, 1 /* LOCAL_PEERCRED */, &peerCred, &credLen)
-            guard credResult == 0, peerCred.cr_uid == getuid() else {
-                close(clientFD)
-                continue
-            }
-
-            stateLock.lock()
-            let connectionID = nextConnectionID
-            nextConnectionID += 1
-            stateLock.unlock()
-
-            let connection = Connection(id: connectionID, peerUID: peerCred.cr_uid)
-            onConnect(connection)
-            shutdown(clientFD, SHUT_RDWR)
-            close(clientFD)
-            onClose(connection)
-        }
     }
 
     // MARK: - Accept loop
 
     private func acceptLoop(listenerFD: Int32) {
         while true {
+            stateLock.lock()
+            let stillRunning = running
+            stateLock.unlock()
+            guard stillRunning else { return }
+
             var addr = sockaddr()
             var len = socklen_t(MemoryLayout<sockaddr>.size)
             let clientFD = withUnsafeMutablePointer(to: &addr) { ptr -> Int32 in
                 accept(listenerFD, ptr, &len)
             }
-            guard clientFD >= 0 else {
-                // Listener was closed (stop()) or a real error; either way, exit.
-                return
-            }
 
-            stateLock.lock()
-            let stillRunning = running
-            stateLock.unlock()
-            guard stillRunning else {
-                close(clientFD)
-                return
+            if clientFD < 0 {
+                switch errno {
+                case EINTR, ECONNABORTED:
+                    // Transient: a signal, or a peer that reset before we
+                    // finished accepting it. Just try again.
+                    continue
+                case EMFILE, ENFILE:
+                    // Out of file descriptors process- or system-wide; back
+                    // off briefly rather than spinning, then retry.
+                    Thread.sleep(forTimeInterval: 0.05)
+                    continue
+                default:
+                    stateLock.lock()
+                    let stillRunningAfterError = running
+                    stateLock.unlock()
+                    if stillRunningAfterError {
+                        // An unexpected accept() failure while we're still
+                        // supposed to be up (not one of the recoverable
+                        // cases above, and not the listener being closed by
+                        // stop(), which sets running = false first). Back
+                        // off and keep trying rather than leaving the
+                        // server silently dead.
+                        Thread.sleep(forTimeInterval: 0.05)
+                        continue
+                    }
+                    // Listener was closed by stop(); nothing more to do.
+                    return
+                }
             }
 
             SocketServer.setNoSigPipe(clientFD)
 
-            var peerCred = xucred()
-            var credLen = socklen_t(MemoryLayout<xucred>.size)
-            let credResult = getsockopt(clientFD, 0 /* SOL_LOCAL */, 1 /* LOCAL_PEERCRED */, &peerCred, &credLen)
-            let peerUID: uid_t
-            if credResult == 0 {
-                peerUID = peerCred.cr_uid
-            } else {
-                // Fall back: cannot verify identity, treat as untrusted.
-                close(clientFD)
-                continue
-            }
-
-            guard peerUID == getuid() else {
+            guard SocketServer.peerUIDMatches(clientFD) else {
                 close(clientFD)
                 continue
             }
 
             stateLock.lock()
+            guard running else {
+                stateLock.unlock()
+                close(clientFD)
+                continue
+            }
             let connectionID = nextConnectionID
             nextConnectionID += 1
             openConnectionFDs[connectionID] = clientFD
             stateLock.unlock()
 
-            let connection = Connection(id: connectionID, peerUID: peerUID)
+            // peerUIDMatches already confirmed the peer's uid equals ours.
+            let connection = Connection(id: connectionID, peerUID: getuid())
             let thread = Thread { [weak self] in
                 self?.handleConnection(connection, fd: clientFD)
             }
@@ -236,10 +275,11 @@ public final class SocketServer {
 
         readLoop: while true {
             let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
-                read(fd, rawBuffer.baseAddress, bufferSize)
+                readRetryingEINTR(fd, into: rawBuffer)
             }
             if bytesRead <= 0 {
-                // EOF (0) or error (<0, includes being interrupted by stop()'s shutdown()).
+                // EOF (0) or a real error (<0, includes being interrupted by
+                // stop()'s shutdown()); EINTR is already retried internally.
                 break readLoop
             }
 
@@ -247,7 +287,7 @@ public final class SocketServer {
             let lines = framer.feed(chunk)
             for line in lines {
                 guard let response = onLine(connection, line) else { continue }
-                if !writeLine(fd: fd, data: response) {
+                if !writeLineRetryingEINTR(fd: fd, data: response) {
                     break readLoop
                 }
             }
@@ -255,7 +295,7 @@ public final class SocketServer {
                 if let errorResponse = try? ProtocolCodec.encode(
                     .error(code: .badRequest, message: "line too long")
                 ) {
-                    _ = writeLine(fd: fd, data: errorResponse)
+                    _ = writeLineRetryingEINTR(fd: fd, data: errorResponse)
                 }
                 break readLoop
             }
@@ -269,20 +309,36 @@ public final class SocketServer {
         onClose(connection)
     }
 
-    private func writeLine(fd: Int32, data: Data) -> Bool {
-        var payload = data
-        payload.append(0x0A)
-        let written = payload.withUnsafeBytes { rawBuffer -> Int in
-            write(fd, rawBuffer.baseAddress, rawBuffer.count)
-        }
-        return written == payload.count
-    }
-
     // MARK: - Helpers
 
     fileprivate static func setNoSigPipe(_ fd: Int32) {
         var value: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &value, socklen_t(MemoryLayout<Int32>.size))
+    }
+
+    /// Whether `fd`'s connected peer has the same uid as this process,
+    /// checked via `getpeereid`.
+    fileprivate static func peerUIDMatches(_ fd: Int32) -> Bool {
+        var uid: uid_t = 0
+        var gid: gid_t = 0
+        guard getpeereid(fd, &uid, &gid) == 0 else { return false }
+        return uid == getuid()
+    }
+
+    /// Probes an existing socket file at `path` by attempting to connect to
+    /// it. Returns `true` only when a live listener actually accepted the
+    /// connection.
+    fileprivate static func probeExistingSocketIsLive(path: String) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let result = SocketServer.withSockaddrPointer(path: path, addr: &addr) { sockPtr, len in
+            connect(fd, sockPtr, len)
+        }
+        return result == 0
     }
 
     /// Builds a `sockaddr_un` for `path` and invokes `body` with a `sockaddr`
@@ -309,16 +365,25 @@ public final class SocketServer {
 /// A client for the copystack Unix-domain socket protocol: connects, sends
 /// one request, and reads exactly one newline-delimited response line.
 public final class SocketClient {
+    /// List responses can carry up to ~2000 clip previews of a couple KB
+    /// each, so the default response limit is well above the server's
+    /// request-side default.
+    public static let defaultMaxResponseLength = 8 * 1024 * 1024
+
     private let fd: Int32
-    private var framer = LineFramer(maxLineLength: 65_536)
+    private var framer: LineFramer
     private var closed = false
     private let lock = NSLock()
 
-    private init(fd: Int32) {
+    private init(fd: Int32, maxResponseLength: Int) {
         self.fd = fd
+        self.framer = LineFramer(maxLineLength: maxResponseLength)
     }
 
-    public static func connect(path: String) throws -> SocketClient {
+    public static func connect(
+        path: String,
+        maxResponseLength: Int = SocketClient.defaultMaxResponseLength
+    ) throws -> SocketClient {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw SocketError.connect(errno: errno)
@@ -335,7 +400,7 @@ public final class SocketClient {
             Darwin.close(fd)
             throw SocketError.connect(errno: connectErrno)
         }
-        return SocketClient(fd: fd)
+        return SocketClient(fd: fd, maxResponseLength: maxResponseLength)
     }
 
     public func send(_ request: Request) throws -> Response {
@@ -343,12 +408,8 @@ public final class SocketClient {
         defer { lock.unlock() }
         guard !closed else { throw SocketError.closed }
 
-        var payload = try ProtocolCodec.encode(request)
-        payload.append(0x0A)
-        let written = payload.withUnsafeBytes { rawBuffer -> Int in
-            write(fd, rawBuffer.baseAddress, rawBuffer.count)
-        }
-        guard written == payload.count else {
+        let payload = try ProtocolCodec.encode(request)
+        guard writeLineRetryingEINTR(fd: fd, data: payload) else {
             throw SocketError.closed
         }
 
@@ -356,7 +417,7 @@ public final class SocketClient {
         var buffer = [UInt8](repeating: 0, count: bufferSize)
         while true {
             let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer -> Int in
-                read(fd, rawBuffer.baseAddress, bufferSize)
+                readRetryingEINTR(fd, into: rawBuffer)
             }
             guard bytesRead > 0 else {
                 throw SocketError.closed
