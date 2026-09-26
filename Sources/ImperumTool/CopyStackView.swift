@@ -5,7 +5,10 @@ import ImperumCore
 struct CopyStackView: View {
     @ObservedObject var model: CopyStackModel
     @FocusState private var searchFocused: Bool
-    @State private var query = ""
+
+    private var queryBinding: Binding<String> {
+        Binding(get: { model.query }, set: { model.setQuery($0) })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,8 +19,8 @@ struct CopyStackView: View {
             footer
         }
         .frame(width: 640, height: 520)
-        .onAppear { query = ""; searchFocused = true }
-        .onChange(of: query) { _, q in model.setQuery(q) }
+        .onAppear { searchFocused = true }
+        .onChange(of: model.focusGeneration) { _, _ in searchFocused = true }
     }
 
     // MARK: Header
@@ -26,7 +29,7 @@ struct CopyStackView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.title3)
-                TextField("Type to search…", text: $query)
+                TextField("Type to search…", text: queryBinding)
                     .textFieldStyle(.plain).font(.title3)
                     .focused($searchFocused)
                 Text("\(model.totalCount) clips").font(.caption).foregroundStyle(.secondary)
@@ -59,7 +62,7 @@ struct CopyStackView: View {
                         Text(section.title).font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
                             .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 4)
                         ForEach(section.clips) { clip in
-                            let index = model.flat.firstIndex(where: { $0.id == clip.id }) ?? 0
+                            let index = model.indexByID[clip.id] ?? 0
                             ClipRow(clip: clip, index: index, selected: model.selectedID == clip.id,
                                     thumbnail: model.thumbnail(for: clip), favicon: model.favicon(for: clip))
                                 .id(clip.id)
@@ -80,7 +83,7 @@ struct CopyStackView: View {
             hint("arrow.up.arrow.down", "Navigate")
             hint("arrow.left.arrow.right", "Category")
             hint("return", "Paste")
-            hint("command", "P  Pin", literal: "⌘P")
+            hint("command", "Pin", literal: "⌘P")
             hint("delete.left", "Delete")
             Spacer()
             hint("escape", "Close", literal: "esc")
@@ -94,7 +97,7 @@ struct CopyStackView: View {
             Group { if let l = literal { Text(l).font(.caption2.monospaced()) } else { Image(systemName: symbol) } }
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.1)))
-            Text(label.replacingOccurrences(of: "P  ", with: ""))
+            Text(label)
         }
     }
 }

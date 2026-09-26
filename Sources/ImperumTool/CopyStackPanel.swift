@@ -16,7 +16,9 @@ final class CopyStackPanel {
     private let model: CopyStackModel
     private var panel: KeyablePanel?
     private var keyMonitor: Any?
-    private var observers: [Any] = []
+    private var notificationObservers: [Any] = []
+    private var workspaceObservers: [Any] = []
+    private var distributedObservers: [Any] = []
 
     init(model: CopyStackModel) { self.model = model }
 
@@ -81,29 +83,41 @@ final class CopyStackPanel {
             return self.route(e) ? nil : e
         }
         let nc = NotificationCenter.default
-        observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in self?.model.onClose?() })
-        observers.append(nc.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in self?.model.onClose?() })
-        observers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in self?.model.onClose?() })
+        notificationObservers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in self?.model.onClose?() })
+        workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            // Imperum Tool activating itself (e.g. when the panel takes key
+            // focus) must not close the panel it is showing.
+            if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+               app.bundleIdentifier == Bundle.main.bundleIdentifier { return }
+            self?.model.onClose?()
+        })
+        distributedObservers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in self?.model.onClose?() })
     }
 
     private func removeMonitors() {
         if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
-        for o in observers {
-            NotificationCenter.default.removeObserver(o)
-            DistributedNotificationCenter.default().removeObserver(o)
-        }
-        observers.removeAll()
+        let nc = NotificationCenter.default
+        for o in notificationObservers { nc.removeObserver(o) }
+        notificationObservers.removeAll()
+        let wc = NSWorkspace.shared.notificationCenter
+        for o in workspaceObservers { wc.removeObserver(o) }
+        workspaceObservers.removeAll()
+        let dc = DistributedNotificationCenter.default()
+        for o in distributedObservers { dc.removeObserver(o) }
+        distributedObservers.removeAll()
     }
 
     /// True when consumed. Anything else goes to the search field.
     private func route(_ e: NSEvent) -> Bool {
-        let cmd = e.modifierFlags.contains(.command)
+        let flags = e.modifierFlags
+        let cmd = flags.contains(.command)
+        let plain = !cmd && !flags.contains(.option)
         switch e.keyCode {
-        case 126: return model.handle(key: .up)
-        case 125: return model.handle(key: .down)
-        case 123: return model.handle(key: .left)
-        case 124: return model.handle(key: .right)
-        case 36, 76: return model.handle(key: .enter)
+        case 126 where plain: return model.handle(key: .up)
+        case 125 where plain: return model.handle(key: .down)
+        case 123 where plain: return model.handle(key: .left)
+        case 124 where plain: return model.handle(key: .right)
+        case 36, 76: if plain { return model.handle(key: .enter) }
         case 53: return model.handle(key: .escape)
         case 51 where model.query.isEmpty: return model.handle(key: .delete)
         default: break
@@ -111,6 +125,23 @@ final class CopyStackPanel {
         if cmd, let ch = e.charactersIgnoringModifiers {
             if ch == "p" { return model.handle(key: .pin) }
             if let n = Int(ch), (1...9).contains(n) { return model.handle(key: .digit(n)) }
+            // The panel has no Edit menu, so these standard shortcuts would
+            // otherwise be swallowed by the local monitor and do nothing in
+            // the search field. Route them to the field's editor directly.
+            switch ch {
+            case "v": return NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+            case "c": return NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+            case "x": return NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
+            case "a": return NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+            default: break
+            }
+            // Swallow the shortcuts the app's main menu would otherwise act
+            // on while this panel is key, so it can never quit, open
+            // Settings, or minimize/close a window out from under the user.
+            switch e.keyCode {
+            case 12, 43, 29, 13: return true // ⌘Q, ⌘, (comma), ⌘0, ⌘W
+            default: break
+            }
         }
         return false
     }

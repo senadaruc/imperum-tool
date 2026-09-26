@@ -11,6 +11,8 @@ final class CopyStackModel: ObservableObject {
     @Published private(set) var state = PanelState()
     @Published private(set) var sections: [ClipSection] = []
     @Published private(set) var flat: [Clip] = []
+    @Published private(set) var indexByID: [UUID: Int] = [:]
+    @Published private(set) var focusGeneration = 0
 
     var onPaste: ((Clip) -> Void)?
     var onClose: (() -> Void)?
@@ -33,7 +35,7 @@ final class CopyStackModel: ObservableObject {
     var selectedID: UUID? { flat.indices.contains(state.selectedIndex) ? flat[state.selectedIndex].id : nil }
     var totalCount: Int { flat.count }
 
-    func reset() { state.reset(); thumbs.removeAll(); recompute() }
+    func reset() { state.reset(); thumbs.removeAll(); focusGeneration += 1; recompute() }
 
     func setQuery(_ q: String) { state.setQuery(q); recompute() }
 
@@ -80,6 +82,9 @@ final class CopyStackModel: ObservableObject {
     private func recompute() {
         let v = state.visible(from: store.clips, now: Date(), calendar: .current)
         sections = v.sections; flat = v.flat
+        var index: [UUID: Int] = [:]
+        for (i, c) in flat.enumerated() { index[c.id] = i }
+        indexByID = index
         state.clampSelection(count: flat.count)
     }
 }
