@@ -57,6 +57,16 @@ encrypted with AES-GCM under a key in your login Keychain. Website icons for
 links are opt-in (they contact the link's domain). "Clear stack when Imperum
 Tool quits" gives session-only memory.
 
+Exclusions cover both applications and websites (Settings › Clipboard ›
+Privacy). A website entry is a hostname shown as `*.example.com` and matches
+that site plus all its subdomains; a copy made while a browser page on an
+excluded site is frontmost is skipped the same way a copy in an excluded
+application is. The page's URL is read through Accessibility (the frontmost
+app's focused web area), so double-tap ⌘V's Accessibility permission covers
+this too; without it, or on a non-browser app, website exclusions simply
+don't match anything. Verified against Safari, Google Chrome, Firefox and
+Brave.
+
 The double-tap needs Accessibility (to hold a ⌘V for ~300 ms and decide if a
 second tap follows); the ⌘⇧V hotkey does not.
 
