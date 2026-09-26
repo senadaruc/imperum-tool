@@ -15,11 +15,19 @@ final class NSPasteboardReader: PasteboardReading {
         (pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
     }
 
+    /// Relies on `ClipCapture.capture` checking `fileURLs()` before this: a
+    /// Finder copy of an image file also answers `canReadObject` for
+    /// `NSImage` (AppKit resolves the file URL and decodes it), so without
+    /// that ordering a Finder copy would be captured as an image blob here
+    /// instead of the `.file` clip it should be.
+    ///
+    /// Not captured: file promises (e.g. dragging out of Photos.app), which
+    /// need `NSFilePromiseReceiver` — out of scope for this fix.
     func imagePNG() -> PasteboardImage? {
-        guard pb.types?.contains(where: { $0 == .png || $0 == .tiff }) == true,
-              let img = NSImage(pasteboard: pb),
+        guard pb.canReadObject(forClasses: [NSImage.self], options: nil), let img = NSImage(pasteboard: pb),
               let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        guard rep.pixelsWide > 0, rep.pixelsHigh > 0 else { return nil }
         return PasteboardImage(data: png, width: rep.pixelsWide, height: rep.pixelsHigh)
     }
 
