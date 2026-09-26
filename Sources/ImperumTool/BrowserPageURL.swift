@@ -18,41 +18,54 @@ enum BrowserPageURL {
     private static let maxVisited = 2500
     private static let maxDepth = 25
 
+    /// A wall-clock ceiling on the whole walk, independent of the per-message
+    /// AX timeout below: an app with no web area at all (an IDE, most native
+    /// Mac apps) still has a UI tree to walk, and many small, individually
+    /// fast AX round-trips can still add up past what a poll on every
+    /// pasteboard change should ever cost.
+    private static let deadline: TimeInterval = 0.05
+
+    /// Caps every individual AX round-trip. Without this, a hung or slow
+    /// frontmost app can leave a single `AXUIElementCopyAttributeValue` call
+    /// blocked for the ~6 second AX default — this bounds that to a fraction
+    /// of the capture path's 250 ms poll interval.
+    private static let messagingTimeout: Float = 0.1
+
     /// nil on any Accessibility error: no permission, no frontmost app, no
     /// window, or no web-area element found. Never throws, never blocks
-    /// waiting on a hung app beyond what the underlying AX calls do.
+    /// waiting on a hung app beyond `messagingTimeout` per AX call.
     static func frontPageHost() -> String? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        // Imperum Tool's own windows (the settings window, the panel) have no
+        // web area to find; walking them would be pure overhead on every copy
+        // made while our own UI is in front.
+        if app.bundleIdentifier == Bundle.main.bundleIdentifier { return nil }
 
-        let window = focusedOrFirstWindow(of: axApp)
-        guard let window else { return nil }
+        let pid = app.processIdentifier
+        let axApp = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(axApp, messagingTimeout)
+
+        guard let window = AXWindow.focusedWindow(pid: pid) ?? AXWindow.windows(pid: pid).first else { return nil }
+        AXUIElementSetMessagingTimeout(window, messagingTimeout)
 
         guard let webArea = findWebArea(from: window) else { return nil }
         let url = urlAttribute(webArea, kAXURLAttribute) ?? urlAttribute(webArea, "AXDocument")
         return url?.host
     }
 
-    private static func focusedOrFirstWindow(of axApp: AXUIElement) -> AXUIElement? {
-        var winRef: AnyObject?
-        if AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &winRef) == .success,
-           let win = winRef {
-            return (win as! AXUIElement)
-        }
-        var winsRef: AnyObject?
-        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &winsRef) == .success,
-              let wins = winsRef as? [AXUIElement], let first = wins.first else { return nil }
-        return first
-    }
-
     /// Breadth-first search of the accessibility tree under `root` for an
-    /// element whose role is "AXWebArea", capped at `maxVisited` elements and
-    /// `maxDepth` levels.
+    /// element whose role is "AXWebArea", capped at `maxVisited` elements,
+    /// `maxDepth` levels and `deadline` wall-clock seconds. Indexes into
+    /// `queue` instead of `removeFirst()`, which is O(n) on an array.
     private static func findWebArea(from root: AXUIElement) -> AXUIElement? {
-        var queue: [(AXUIElement, Int)] = [(root, 0)]
+        var queue: [(element: AXUIElement, depth: Int)] = [(root, 0)]
+        var head = 0
         var visited = 0
-        while !queue.isEmpty {
-            let (element, depth) = queue.removeFirst()
+        let deadlineAt = Date().addingTimeInterval(deadline)
+        while head < queue.count {
+            if Date() > deadlineAt { return nil }
+            let (element, depth) = queue[head]
+            head += 1
             visited += 1
             if visited > maxVisited { return nil }
 

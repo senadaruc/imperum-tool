@@ -125,9 +125,13 @@ struct ClipboardSettingsTab: View {
                     }
                 }
                 .frame(height: 120)
+                if !accessibilityGranted {
+                    Text("Needs Accessibility access to read the page address").font(.caption).foregroundStyle(.orange)
+                }
                 HStack {
                     TextField("*.example.com", text: $newHostInput)
                         .onSubmit { addHostExclusion() }
+                        .onChange(of: newHostInput) { _, _ in hostInputError = false }
                     Button("Add") { addHostExclusion() }
                         .disabled(newHostInput.trimmingCharacters(in: .whitespaces).isEmpty)
                     Button("Remove") {

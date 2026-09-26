@@ -61,11 +61,12 @@ Exclusions cover both applications and websites (Settings › Clipboard ›
 Privacy). A website entry is a hostname shown as `*.example.com` and matches
 that site plus all its subdomains; a copy made while a browser page on an
 excluded site is frontmost is skipped the same way a copy in an excluded
-application is. The page's URL is read through Accessibility (the frontmost
-app's focused web area), so double-tap ⌘V's Accessibility permission covers
-this too; without it, or on a non-browser app, website exclusions simply
-don't match anything. Verified against Safari, Google Chrome, Firefox and
-Brave.
+application is. The page's URL is read through Accessibility, from the first
+web area found in the front window — so this isn't limited to browsers as
+such, it applies to whatever page is in front, in any app that hosts one
+(Mail, an Electron app, etc). Double-tap ⌘V's Accessibility permission covers
+this too; without it, website exclusions simply don't match anything.
+Verified against Safari, Google Chrome, Firefox and Brave.
 
 The double-tap needs Accessibility (to hold a ⌘V for ~300 ms and decide if a
 second tap follows); the ⌘⇧V hotkey does not.

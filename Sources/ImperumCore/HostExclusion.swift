@@ -8,16 +8,24 @@ import Foundation
 public enum HostExclusion {
     private static let allowedCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789.-")
 
+    /// Matches a scheme only at the very start of the input (`http://`,
+    /// `https://`, ...), so a scheme embedded further in — e.g. inside a
+    /// query string like `example.com/r?u=http://x.org` — is never mistaken
+    /// for the start of the host.
+    private static let leadingSchemeRegex = try! NSRegularExpression(pattern: "^[a-z][a-z0-9+.-]*://")
+
     /// Turns user input into a stored entry, or nil when it can't be made
-    /// into a valid host. Strips a scheme, userinfo, port, path/query/
-    /// fragment, a leading `*.` or `www.`, and a trailing `.`. IDN input is
-    /// only lowercased, never punycode-encoded.
+    /// into a valid host. Strips a leading scheme, userinfo, port,
+    /// path/query/fragment, a leading `*.` or `www.`, and a trailing `.`.
+    /// Non-ASCII (IDN) input is rejected; a punycode (`xn--`) host is
+    /// accepted as-is.
     public static func normalize(_ input: String) -> String? {
         var s = input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !s.isEmpty else { return nil }
 
-        if let schemeRange = s.range(of: "://") {
-            s = String(s[schemeRange.upperBound...])
+        let fullRange = NSRange(s.startIndex..., in: s)
+        if let match = leadingSchemeRegex.firstMatch(in: s, range: fullRange), let range = Range(match.range, in: s) {
+            s = String(s[range.upperBound...])
         }
 
         if let cut = s.firstIndex(where: { "/?#".contains($0) }) {
@@ -37,6 +45,8 @@ public enum HostExclusion {
         while s.hasSuffix(".") { s.removeLast() }
 
         guard !s.isEmpty, s.contains("."), s.rangeOfCharacter(from: allowedCharacters.inverted) == nil else { return nil }
+        let labels = s.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.allSatisfy({ !$0.isEmpty }) else { return nil }
         return s
     }
 
@@ -51,6 +61,7 @@ public enum HostExclusion {
         guard !h.isEmpty else { return false }
         for entry in entries {
             let e = entry.lowercased()
+            guard !e.isEmpty else { continue }
             if h == e || h.hasSuffix("." + e) { return true }
         }
         return false

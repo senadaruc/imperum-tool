@@ -23,6 +23,18 @@ final class HostExclusionTests: XCTestCase {
         XCTAssertNil(HostExclusion.normalize("   "))
     }
 
+    func testNormalizeRejectsEmptyLabels() {
+        XCTAssertNil(HostExclusion.normalize(".mybank.com"))
+        XCTAssertNil(HostExclusion.normalize("a..b.com"))
+        XCTAssertNil(HostExclusion.normalize("mybank..com"))
+    }
+
+    func testNormalizeOnlyStripsALeadingScheme() {
+        // A scheme embedded further in, e.g. inside a query string, must not
+        // be treated as the start of the host.
+        XCTAssertEqual(HostExclusion.normalize("example.com/r?u=http://x.org"), "example.com")
+    }
+
     func testDisplayPrefixesWildcard() {
         XCTAssertEqual(HostExclusion.display("mybank.com"), "*.mybank.com")
     }
@@ -39,5 +51,10 @@ final class HostExclusionTests: XCTestCase {
 
     func testMatchesIsCaseInsensitiveAndIgnoresTrailingDot() {
         XCTAssertTrue(HostExclusion.matches(host: "MYBANK.COM.", entries: ["mybank.com"]))
+    }
+
+    func testMatchesIgnoresEmptyEntries() {
+        XCTAssertFalse(HostExclusion.matches(host: "mybank.com", entries: [""]))
+        XCTAssertTrue(HostExclusion.matches(host: "mybank.com", entries: ["", "mybank.com"]))
     }
 }
