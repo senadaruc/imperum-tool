@@ -23,6 +23,15 @@ final class PickSession {
 
     private let copystackPath: String
     private let commitPasted: (Clip) -> Void
+    /// Re-checked immediately before posting ⌘V: if the master switch was
+    /// turned off while the session was open, skip the paste entirely —
+    /// mirrors `CopyStackServer`'s standalone-paste path.
+    private let isEnabled: () -> Bool
+    /// Re-reads the clip from the store right before committing it, so a pin
+    /// toggle or delete that happened while we were waiting for focus is
+    /// reflected, and a deleted clip isn't resurrected by committing a stale
+    /// copy — mirrors `CopyStackServer.handleClose`'s standalone-paste path.
+    private let lookupClip: (UUID) -> Clip?
     /// Called when the session can't proceed (open failed, or no `hello`
     /// arrived within the connect timeout): the caller falls back to the
     /// SwiftUI panel.
@@ -43,6 +52,7 @@ final class PickSession {
 
     init(originPID: pid_t, originWindow: AXUIElement?, host: TerminalHost, hostApp: TerminalApp,
          copystackPath: String, commitPasted: @escaping (Clip) -> Void,
+         isEnabled: @escaping () -> Bool, lookupClip: @escaping (UUID) -> Clip?,
          onFallback: @escaping () -> Void, onFinished: @escaping () -> Void) {
         self.token = Self.randomToken()
         self.originPID = originPID
@@ -51,19 +61,29 @@ final class PickSession {
         self.hostApp = hostApp
         self.copystackPath = copystackPath
         self.commitPasted = commitPasted
+        self.isEnabled = isEnabled
+        self.lookupClip = lookupClip
         self.onFallback = onFallback
         self.onFinished = onFinished
     }
 
     func start() {
         host.open(session: token, copystackPath: copystackPath) { [weak self] result in
-            guard let self, !self.finished else { return }
+            guard let self else { return }
             switch result {
             case .success(let handle):
+                guard !self.finished else {
+                    // cancel() or an early EOF finished the session while
+                    // open() was still in flight; the window arrived too
+                    // late to use but must still be closed, not orphaned.
+                    self.closeHostWindow(handle)
+                    return
+                }
                 self.handle = handle
                 self.host.position(handle, windowTitle: HostCommand.windowTitle(session: self.token))
                 self.armConnectTimeout()
             case .failure:
+                guard !self.finished else { return }
                 self.onFallback()
                 self.finish(callFinished: true)
             }
@@ -89,7 +109,7 @@ final class PickSession {
     func onClosed() {
         guard !finished else { return }
         guard let handle else { return finish(callFinished: true) }
-        host.close(handle)
+        closeHostWindow(handle)
         startFocusWait()
     }
 
@@ -99,7 +119,7 @@ final class PickSession {
         guard !finished else { return }
         connectTimeoutWork?.cancel()
         connectTimeoutWork = nil
-        if let handle { host.close(handle) }
+        if let handle { closeHostWindow(handle) }
         AXWindow.setFrontmost(pid: originPID)
         if let originWindow { AXWindow.raise(originWindow) }
         finish(callFinished: true)
@@ -115,9 +135,20 @@ final class PickSession {
 
     private func connectTimedOut() {
         guard !finished, !connected else { return }
-        if let handle { host.close(handle) }
+        if let handle { closeHostWindow(handle) }
         onFallback()
         finish(callFinished: true)
+    }
+
+    /// Closes the host's window through whatever mechanism it reported
+    /// (`HostHandle`'s `windowID`/`newInstance`), then falls back to finding
+    /// it by its picker title over AX and pressing its close button — a
+    /// safety net for a handle that reported neither, so a window is never
+    /// left orphaned behind this session.
+    private func closeHostWindow(_ handle: HostHandle) {
+        host.close(handle)
+        guard let window = AXWindow.find(pid: handle.hostPID, titleContains: HostCommand.windowTitle(session: token)) else { return }
+        AXWindow.pressClose(window)
     }
 
     // MARK: Focus wait / paste-back
@@ -159,9 +190,11 @@ final class PickSession {
             if let originWindow { AXWindow.raise(originWindow) }
         case .post:
             focusTimer?.invalidate(); focusTimer = nil
-            if let clip = pending {
+            if let clip = pending, isEnabled() {
                 ClipPaster.postPaste()
-                commitPasted(clip)
+                if let current = lookupClip(clip.id) {
+                    commitPasted(current)
+                }
             }
             finish(callFinished: true)
         case .timeout:

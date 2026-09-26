@@ -39,16 +39,16 @@ public struct FocusWait: Equatable {
         guard !finished else { return .wait }
 
         let ready = o.originIsFrontmost && o.originWindowFocused && o.pickerWindowGone
-        if ready {
-            stableCount += 1
-            if stableCount >= stableTicks {
-                finished = true
-                return .post
-            }
-            return .wait
-        }
-        stableCount = 0
+        stableCount = ready ? stableCount + 1 : 0
 
+        // The timeout is checked on every tick, ready or not — a tick that
+        // just became ready but hasn't held for `stableTicks` yet must still
+        // time out once `elapsedMs` has already reached the deadline, rather
+        // than silently returning `.wait` and never firing again.
+        if ready, stableCount >= stableTicks {
+            finished = true
+            return .post
+        }
         if o.elapsedMs >= timeoutMs {
             finished = true
             return .timeout

@@ -54,4 +54,19 @@ final class FocusWaitTests: XCTestCase {
         var fw = FocusWait(nudgeAfterMs: 50, timeoutMs: 200, stableTicks: 1)
         XCTAssertEqual(fw.step(ready(0)), .post)
     }
+
+    func test_readyButNotYetStableAtTimeoutDeadline_timesOutRatherThanWaiting() {
+        var fw = FocusWait()
+        // First ready tick lands exactly at the timeout deadline: stableCount
+        // is only 1 (< stableTicks == 2), so it must not silently .wait —
+        // the deadline has already passed, so it times out instead.
+        XCTAssertEqual(fw.step(ready(1500)), .timeout)
+    }
+
+    func test_readyAndStableExactlyAtTimeoutDeadline_stillPosts() {
+        var fw = FocusWait(stableTicks: 1)
+        // With stableTicks == 1, a single ready tick is enough to post even
+        // when that tick's elapsedMs has already reached the timeout.
+        XCTAssertEqual(fw.step(ready(1500)), .post)
+    }
 }

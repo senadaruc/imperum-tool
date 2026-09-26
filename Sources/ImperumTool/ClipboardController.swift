@@ -230,6 +230,8 @@ final class ClipboardController {
         let newSession = PickSession(
             originPID: originPID, originWindow: originWindow, host: host, hostApp: app, copystackPath: copystackPath,
             commitPasted: { [weak self] clip in self?.commitPasted(clip) },
+            isEnabled: { [weak self] in self?.settings.settings.enabled ?? false },
+            lookupClip: { [weak self] id in self?.store.clip(id: id) },
             onFallback: { [weak self] in self?.showPanel(anchor: anchor) },
             onFinished: { [weak self] in self?.session = nil })
         session = newSession
