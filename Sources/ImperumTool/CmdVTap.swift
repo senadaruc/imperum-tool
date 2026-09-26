@@ -100,7 +100,16 @@ final class CmdVTap {
         case .pasteNow:
             holdTimer?.cancel(); holdTimer = nil
             Self.postKey(Self.vKey, flags: .maskCommand)
-            return isCmdV ? nil : Unmanaged.passUnretained(event)
+            if isCmdV { return nil }
+            // The triggering key (e.g. Enter) is already in flight past the HID insertion
+            // point, so simply returning it would let it overtake the ⌘V we just queued
+            // behind it. Swallow the original and re-post a marked copy so it lands after
+            // the paste, preserving "⌘V then <key>" order.
+            if let copy = event.copy() {
+                copy.setIntegerValueField(.eventSourceUserData, value: Self.marker)
+                copy.post(tap: .cghidEventTap)
+            }
+            return nil
         case .openPanel:
             holdTimer?.cancel(); holdTimer = nil
             DispatchQueue.main.async { [weak self] in self?.onOpenPanel?() }
