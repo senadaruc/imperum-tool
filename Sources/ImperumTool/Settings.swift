@@ -121,7 +121,7 @@ enum SettingsTabs {
             GeneralSettingsTab(config: config))
         add("taps", "Tap Gestures", "hand.tap", size: NSSize(width: 600, height: 720),
             TapGesturesSettingsTab(store: tapStore, controller: tapController))
-        add("clipboard", "Clipboard", "doc.on.clipboard", size: NSSize(width: 600, height: 720),
+        add("clipboard", "Clipboard", "doc.on.clipboard", size: NSSize(width: 600, height: 780),
             ClipboardSettingsTab(store: clipboardStore, onClearAll: onClearClipboard))
         add("volumes", "External Volumes", "externaldrive", size: NSSize(width: 600, height: 420),
             Form { ExternalVolumesSettingsSection(blockStore: blockStore) }.formStyle(.grouped))

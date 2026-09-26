@@ -60,7 +60,7 @@ struct ClipboardSettingsTab: View {
                         .tag(id)
                     }
                 }
-                .frame(minHeight: 140)
+                .frame(height: 160)
                 HStack {
                     Button("Add Application…") { addApplication() }
                     Button("Remove") {
