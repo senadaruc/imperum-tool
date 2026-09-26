@@ -110,6 +110,17 @@ final class ClipCaptureTests: XCTestCase {
         XCTAssertNil(ClipCapture.capture(from: FakePasteboard(text: "   "), context: ctx()))
     }
 
+    func testHugeTextIsTruncatedToOneMegabyte() {
+        let big = String(repeating: "a", count: 5_000_000)
+        let pb = FakePasteboard(text: "first line\n" + big)
+        let c = ClipCapture.capture(from: pb, context: ctx())!
+        XCTAssertEqual(c.clip.kind, .text)
+        XCTAssertEqual(c.clip.title, "first line")
+        guard case .text(let payload) = c.clip.payload else { return XCTFail("expected .text payload") }
+        XCTAssertLessThanOrEqual(payload.utf8.count, ClipCapture.maxInlineTextBytes + 3)
+        XCTAssertTrue(payload.hasSuffix("…"))
+    }
+
     func testVetoedChangeIsNil() {
         XCTAssertNil(ClipCapture.capture(
             from: FakePasteboard(types: ["org.nspasteboard.ConcealedType"], text: "secret", failOnRead: true),

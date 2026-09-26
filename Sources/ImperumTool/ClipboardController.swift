@@ -6,9 +6,13 @@ import ImperumCore
 /// Owns the whole clipboard subsystem and reacts to settings live.
 ///
 /// Main-thread invariant: every call into `ClipStore`, `ClipArchive`, `CmdVTap`,
-/// the panel and the status item happens on the main thread. The poll `Timer`
-/// runs on the main run loop, the settings sink receives on `DispatchQueue.main`,
-/// and `tap.onOpenPanel` is already dispatched to main by the tap.
+/// the panel and the status item happens on the main thread, with one
+/// exception: `scheduleSave()`'s debounced index write runs on `saveQueue`, a
+/// private serial background queue, since `ClipArchive` has no shared
+/// mutable state and is safe to call from any single queue at a time. The
+/// poll `Timer` runs on the main run loop, the settings sink receives on
+/// `DispatchQueue.main`, and `tap.onOpenPanel` is already dispatched to main
+/// by the tap.
 final class ClipboardController {
     private let settings: ClipboardSettingsStore
     private let store = ClipStore()
@@ -26,6 +30,10 @@ final class ClipboardController {
     private lazy var statusItem = ClipboardStatusItem(store: store, settings: settings)
     private var pollTimer: Timer?
     private var saveWork: DispatchWorkItem?
+    /// Encoding + sealing the index can take ~200ms once it grows large;
+    /// running that on main would stall the event tap's run loop (every
+    /// keystroke, system-wide) for the duration. Serial so saves can't race.
+    private let saveQueue = DispatchQueue(label: "io.imperum.tool.clipboard.save", qos: .utility)
     private var lastChangeCount = NSPasteboard.general.changeCount
     private var bag = Set<AnyCancellable>()
 
@@ -187,8 +195,11 @@ final class ClipboardController {
         saveWork?.cancel()
         guard !settings.settings.clearOnQuit, !archiveUnavailable else { return }
         let w = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            do { try self.archive?.saveIndex(self.store.clips) } catch { NSLog("Imperum Tool clipboard save failed: \(error)") }
+            guard let self, let archive = self.archive else { return }
+            let clips = self.store.clips   // snapshot the value array on main
+            self.saveQueue.async {
+                do { try archive.saveIndex(clips) } catch { NSLog("Imperum Tool clipboard save failed: \(error)") }
+            }
         }
         saveWork = w
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
@@ -213,6 +224,7 @@ final class ClipboardController {
 
     func willTerminate() {
         saveWork?.cancel()
+        saveQueue.sync {}   // drain a pending background save before deciding what to write last
         if settings.settings.clearOnQuit { store.clearAll(); try? archive?.deleteAll() }
         else if !archiveUnavailable { try? archive?.saveIndex(store.clips) }
         blobCache.removeAll()

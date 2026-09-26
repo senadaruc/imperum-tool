@@ -17,6 +17,12 @@ public enum ClipArchiveError: Error, Equatable { case corrupt }
 /// `<dir>/blobs/<uuid>.<suffix>` (each AES-GCM sealed). Writes are atomic
 /// (temp + rename) with mode 0600. The key comes from the provider each call
 /// so the Keychain-backed provider can rotate it.
+///
+/// Thread-safety: an instance has no shared mutable state (the Keychain
+/// provider caches its own key internally), so it is safe to call from any
+/// single queue at a time. It is not safe to call concurrently from two
+/// queues at once; the controller serialises saves onto one background
+/// queue.
 public final class ClipArchive {
     public let directory: URL
     private let keys: ArchiveKeyProvider

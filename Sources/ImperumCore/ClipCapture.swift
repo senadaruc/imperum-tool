@@ -57,6 +57,27 @@ public struct CapturedClip: Equatable {
 }
 
 public enum ClipCapture {
+    /// Inline text clips are capped at this many UTF-8 bytes at capture
+    /// time. The index (all clips, text inline) is encoded and saved on a
+    /// 500 ms debounce; an unbounded string (e.g. a huge log paste) made
+    /// that save slow enough to stall the event tap's run loop.
+    public static let maxInlineTextBytes = 1_000_000
+
+    /// Truncates `s` to at most `maxInlineTextBytes` UTF-8 bytes, cutting at
+    /// a character boundary and appending "…" when a cut was made.
+    private static func truncatedIfNeeded(_ s: String) -> String {
+        guard s.utf8.count > maxInlineTextBytes else { return s }
+        var end = s.startIndex
+        var bytes = 0
+        for i in s.indices {
+            let charBytes = s[i].utf8.count
+            guard bytes + charBytes <= maxInlineTextBytes else { break }
+            bytes += charBytes
+            end = s.index(after: i)
+        }
+        return String(s[s.startIndex..<end]) + "…"
+    }
+
     /// Derives a stable id from content bytes, so identical images dedupe
     /// the same way identical text does (`ClipContentKey` compares the
     /// `.blob` payload, id included).
@@ -89,7 +110,9 @@ public enum ClipCapture {
             return CapturedClip(clip: Clip(kind: .color, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
                                            title: norm, payload: .text(norm)), blobData: nil)
         }
-        guard let text = pb.string(), let kind = ClipClassifier.classifyText(text) else { return nil }
+        guard let rawText = pb.string() else { return nil }
+        let text = truncatedIfNeeded(rawText)
+        guard let kind = ClipClassifier.classifyText(text) else { return nil }
         if kind == .color {
             // Some functional colour strings (hsl/hsla, space-separated rgb)
             // match the classifier's colour regex but aren't normalisable to
