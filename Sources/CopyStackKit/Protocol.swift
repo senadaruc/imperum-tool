@@ -360,13 +360,23 @@ public struct LineFramer {
     }
 
     /// Returns any complete lines (without their trailing "\n") found once
-    /// `bytes` is appended to the buffered tail.
+    /// `bytes` is appended to the buffered tail. If a line — complete or
+    /// still-buffered — exceeds `maxLineLength`, sets `overflowed` and
+    /// stops returning lines (any lines found before the oversized one are
+    /// still returned; the caller is expected to close the connection).
+    /// Once `overflowed` is set, subsequent calls always return `[]`.
     public mutating func feed(_ bytes: Data) -> [Data] {
+        guard !overflowed else { return [] }
         buffer.append(bytes)
         var lines: [Data] = []
         while let newlineIndex = buffer.firstIndex(of: 0x0A) {
-            lines.append(Data(buffer[buffer.startIndex..<newlineIndex]))
+            let line = Data(buffer[buffer.startIndex..<newlineIndex])
             buffer.removeSubrange(buffer.startIndex...newlineIndex)
+            if line.count > maxLineLength {
+                overflowed = true
+                return lines
+            }
+            lines.append(line)
         }
         if buffer.count > maxLineLength {
             overflowed = true

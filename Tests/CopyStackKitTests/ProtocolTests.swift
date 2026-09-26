@@ -229,4 +229,35 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(lines, [])
         XCTAssertTrue(framer.overflowed)
     }
+
+    func testFramerSetsOverflowedOnCompleteOversizedLine() {
+        var framer = LineFramer(maxLineLength: 65_536)
+        var oversizedLine = Data(repeating: 0x61, count: 70_000)
+        oversizedLine.append(0x0A)
+        let lines = framer.feed(oversizedLine)
+        XCTAssertEqual(lines, [])
+        XCTAssertTrue(framer.overflowed)
+    }
+
+    func testFramerReturnsPriorLinesThenOverflowsOnOversizedLineInSameFeed() {
+        var framer = LineFramer(maxLineLength: 65_536)
+        var chunk = "short\n".data(using: .utf8)!
+        var oversizedLine = Data(repeating: 0x62, count: 70_000)
+        oversizedLine.append(0x0A)
+        chunk.append(oversizedLine)
+        let lines = framer.feed(chunk)
+        XCTAssertEqual(lines, ["short".data(using: .utf8)!])
+        XCTAssertTrue(framer.overflowed)
+    }
+
+    func testFramerReturnsNothingAfterOverflow() {
+        var framer = LineFramer(maxLineLength: 65_536)
+        var oversizedLine = Data(repeating: 0x63, count: 70_000)
+        oversizedLine.append(0x0A)
+        _ = framer.feed(oversizedLine)
+        XCTAssertTrue(framer.overflowed)
+        let lines = framer.feed("more\n".data(using: .utf8)!)
+        XCTAssertEqual(lines, [])
+        XCTAssertTrue(framer.overflowed)
+    }
 }
