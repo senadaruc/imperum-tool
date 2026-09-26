@@ -28,13 +28,21 @@ public struct Clip: Codable, Identifiable, Equatable, Hashable {
     public var isPinned: Bool
     public let title: String
     public let payload: ClipPayload
+    /// Optional RTF companion for text-family clips, written back to the
+    /// pasteboard alongside the plain string on paste so formatting survives
+    /// a round trip into Word/Pages/Mail/TextEdit. Plain text stays the
+    /// master representation: search, titles, dedupe (`contentKey`) and the
+    /// panel all key off `payload`, never this. Decodes as nil for any
+    /// archive written before this property existed.
+    public var richText: Data?
 
     public init(id: UUID = UUID(), kind: ClipKind, capturedAt: Date = Date(),
                 sourceAppName: String, sourceBundleID: String?, isPinned: Bool = false,
-                title: String, payload: ClipPayload) {
+                title: String, payload: ClipPayload, richText: Data? = nil) {
         self.id = id; self.kind = kind; self.capturedAt = capturedAt
         self.sourceAppName = sourceAppName; self.sourceBundleID = sourceBundleID
         self.isPinned = isPinned; self.title = title; self.payload = payload
+        self.richText = richText
     }
 
     public var contentKey: ClipContentKey { ClipContentKey(kind: kind, payload: payload) }

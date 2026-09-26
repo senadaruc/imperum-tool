@@ -29,6 +29,19 @@ final class ClipStoreTests: XCTestCase {
         XCTAssertEqual(s.clips.first?.id, first.id)
     }
 
+    /// A fresh rich copy of previously-plain text upgrades the stored clip:
+    /// richText, like capturedAt and source, comes from the INCOMING insert.
+    func testDedupeUpgradesRichTextFromIncoming() {
+        let s = ClipStore()
+        s.insert(text("same", at: 10), limits: limits, now: base)
+        var rich = text("same", at: 20)
+        rich.richText = Data([1, 2, 3])
+        let again = s.insert(rich, limits: limits, now: base)
+        XCTAssertEqual(s.clips.count, 1)
+        XCTAssertEqual(again.richText, Data([1, 2, 3]))
+        XCTAssertEqual(s.clips.first?.richText, Data([1, 2, 3]))
+    }
+
     func testMaxStackDropsOldestUnpinnedOnly() {
         let s = ClipStore()
         let keep = s.insert(text("pinned", at: 1), limits: limits, now: base)

@@ -25,7 +25,8 @@ public final class ClipStore: ObservableObject {
             let old = clips.remove(at: i)
             stored = Clip(id: old.id, kind: old.kind, capturedAt: incoming.capturedAt,
                           sourceAppName: incoming.sourceAppName, sourceBundleID: incoming.sourceBundleID,
-                          isPinned: old.isPinned, title: old.title, payload: old.payload)
+                          isPinned: old.isPinned, title: old.title, payload: old.payload,
+                          richText: incoming.richText)
         }
         clips.insert(stored, at: 0)
         enforce(limits: limits, now: now, notify: false)
