@@ -47,8 +47,8 @@ enum PickerLineLayout {
 }
 
 /// Pure state model for the copystack terminal picker: turns `Key` events
-/// (from `KeyParser`) into state transitions and `Effect`s the tty loop
-/// (Task 8) must act on. No terminal I/O, no AppKit — fully testable.
+/// (from `KeyParser`) into state transitions and `Effect`s the `copystack`
+/// CLI's tty loop must act on. No terminal I/O, no AppKit — fully testable.
 public struct PickerModel: Equatable {
     public enum Effect: Equatable {
         case none, redraw

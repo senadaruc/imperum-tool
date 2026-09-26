@@ -1,8 +1,8 @@
 import Foundation
 import ImperumCore
 
-/// What the app exposes to the socket layer. ClipStore (ImperumCore) will
-/// conform in Task 5 via a small adapter.
+/// What the app exposes to the socket layer. ClipStore (ImperumCore)
+/// conforms to this via `StoreBackend`, a small adapter in `ImperumTool`.
 public protocol ClipBackend: AnyObject {
     /// Newest first, as ClipStore.clips.
     var clips: [Clip] { get }
@@ -19,8 +19,8 @@ public enum PasteError: Error, Equatable {
     case disabled
 }
 
-/// Pure request -> response mapping. Owns no threads; the caller (Task 5's
-/// server) invokes handle() on the main thread.
+/// Pure request -> response mapping. Owns no threads; the caller
+/// (`ImperumTool`'s `CopyStackServer`) invokes handle() on the main thread.
 public final class RequestHandler {
     private let backend: ClipBackend
     private let isEnabled: () -> Bool

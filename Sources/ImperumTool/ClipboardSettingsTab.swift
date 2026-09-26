@@ -80,7 +80,7 @@ struct ClipboardSettingsTab: View {
                     }
                 }
                 if !cliInstalled, let path = CLIInstaller.bundledExecutablePath {
-                    Text("ln -s \"\(path)\" /usr/local/bin/copystack")
+                    Text("ln -s \(ShellQuote.single(path)) \(CLIInstaller.linkPath)")
                         .font(.caption).foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
@@ -210,8 +210,7 @@ enum CLIInstaller {
     static func install(bundledExecutablePath path: String) -> Result<Void, Error> {
         // Single-quote the paths (shell level) so this needs no nested double-quote
         // escaping; a literal single quote in either path is escaped the POSIX way.
-        func shellQuote(_ s: String) -> String { "'\(s.replacingOccurrences(of: "'", with: "'\\''"))'" }
-        let cmd = "mkdir -p /usr/local/bin && ln -sf \(shellQuote(path)) \(shellQuote(linkPath))"
+        let cmd = "mkdir -p /usr/local/bin && ln -sf \(ShellQuote.single(path)) \(ShellQuote.single(linkPath))"
         // Escape once more for the AppleScript string literal that wraps the whole command.
         let escaped = cmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let src = "do shell script \"\(escaped)\" with administrator privileges"

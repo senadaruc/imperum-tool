@@ -58,9 +58,14 @@ enum TerminalHosts {
     /// main; see `GenericTerminalHost`).
     @MainActor static var lastFailure: [TerminalApp: HostError] = [:]
 
-    static func host(for app: TerminalApp, runningApp: NSRunningApplication) -> TerminalHost? {
+    /// - Parameter cmuxSocketPassword: `ClipboardSettingsStore`'s current
+    ///   `cmuxSocketPassword`, read once by the caller (`ClipboardController`,
+    ///   which already owns the store) and threaded straight through, rather
+    ///   than having this host build its own throwaway
+    ///   `ClipboardSettingsStore(defaults: .standard)` per launch.
+    static func host(for app: TerminalApp, runningApp: NSRunningApplication, cmuxSocketPassword: String) -> TerminalHost? {
         guard app.supportsPicker else { return nil }
-        return GenericTerminalHost(app: app, runningApp: runningApp)
+        return GenericTerminalHost(app: app, runningApp: runningApp, cmuxSocketPassword: cmuxSocketPassword)
     }
 }
 
@@ -70,14 +75,18 @@ enum TerminalHosts {
 private final class GenericTerminalHost: TerminalHost {
     let app: TerminalApp
     private let runningApp: NSRunningApplication
+    /// Set once at session start from `ClipboardController`'s own
+    /// `ClipboardSettingsStore` — see `TerminalHosts.host`'s doc comment.
+    private let cmuxSocketPassword: String
 
     /// `NSAppleScript` blocks, so every AppleScript call — across every host
     /// instance — runs off this one shared serial queue, never main.
     private static let appleScriptQueue = DispatchQueue(label: "com.imperum.terminalHosts.appleScript")
 
-    init(app: TerminalApp, runningApp: NSRunningApplication) {
+    init(app: TerminalApp, runningApp: NSRunningApplication, cmuxSocketPassword: String) {
         self.app = app
         self.runningApp = runningApp
+        self.cmuxSocketPassword = cmuxSocketPassword
     }
 
     /// The bundle id of the *actual* running instance, not just one of
@@ -268,8 +277,7 @@ private final class GenericTerminalHost: TerminalHost {
         // cmux-imperum debug build gets one, set explicitly below, so a
         // launch can't be silently redirected to some other socket.
         env.removeValue(forKey: "CMUX_SOCKET_PATH")
-        let password = ClipboardSettingsStore(defaults: .standard).settings.cmuxSocketPassword
-        if !password.isEmpty { env["CMUX_SOCKET_PASSWORD"] = password }
+        if !cmuxSocketPassword.isEmpty { env["CMUX_SOCKET_PASSWORD"] = cmuxSocketPassword }
         if runningApp.bundleIdentifier?.hasSuffix(".debug.imperum") == true,
            let devSocketPath = Self.devLastSocketPath() {
             env["CMUX_SOCKET_PATH"] = devSocketPath
