@@ -60,6 +60,55 @@ Tool quits" gives session-only memory.
 The double-tap needs Accessibility (to hold a ⌘V for ~300 ms and decide if a
 second tap follows); the ⌘⇧V hotkey does not.
 
+### Terminal picker (`copystack`)
+
+Turn on "Use a terminal picker when a terminal app is in front" (Settings ›
+Clipboard › Terminal) and the double-tap ⌘V / ⌘⇧V trigger opens a new window
+of that terminal running the picker instead of the floating panel, whenever
+the frontmost app is **Ghostty, cmux, iTerm2, kitty, or Terminal**. Warp has
+no scriptable window picker, so it always gets the panel. macOS asks once per
+terminal app to let Imperum Tool control it (System Settings › Privacy &
+Security › Automation); denying it falls back to the panel, and Settings
+shows that terminal's status.
+
+In the picker: type to search (search covers up to the first 2 KiB of a
+clip), ↑↓ / ^N ^K ^J to move, ←→ for category, PgUp/PgDn/Home/End, ⏎ to
+paste (copies in `--copy` mode, prints to stdout otherwise), Alt+1–9 for a
+quick pick, ^P to pin, ^D to delete, ^U to clear the query, Esc/^C to cancel.
+`NO_COLOR` is honoured. The window needs at least 40 columns × 8 rows.
+
+`copystack` is also a standalone CLI you can use outside the double-tap
+trigger:
+
+    copystack                    # interactive picker; prints the picked clip to stdout
+    copystack --paste            # interactive picker; pastes into the frontmost app
+    copystack --copy             # interactive picker; copies to the system clipboard
+    copystack list [--json] [--limit N]
+    copystack --version
+    copystack --help
+
+Exit codes: `0` success, `1` a usage error (or the connection to Imperum
+Tool was lost mid-session, or an image was picked in stdout mode), `2`
+Imperum Tool isn't running or command-line access is off, `130` cancelled
+with Esc/^C.
+
+Install it once from Settings › Clipboard › Terminal ("Install command-line
+tool…", which symlinks `/usr/local/bin/copystack`), or by hand:
+
+    ln -s "/Applications/Imperum Tool.app/Contents/MacOS/copystack" /usr/local/bin/copystack
+
+tmux panes can't be targeted directly by the double-tap trigger, so bind a
+popup instead:
+
+    bind-key V display-popup -E -w 100 -h 30 "copystack | tmux load-buffer - && tmux paste-buffer -p"
+
+`copystack` talks to Imperum Tool over a private Unix socket at
+`~/Library/Application Support/Imperum Tool/copystack.sock` (mode `0600`,
+reachable only by your own user account; override with
+`IMPERUM_COPYSTACK_SOCK`). It runs only while both "Enable clipboard
+history" and "Allow command-line access" are on, and is removed when the
+app quits.
+
 ## Why no per-app GPU %
 
 Apple exposes **no per-app GPU% on Apple Silicon** — even `powermetrics`
@@ -95,5 +144,5 @@ can't take arguments or write files.
 
 ## Develop / test
 
-    swift test                 # ImperumCore logic + samplers + tap detector (69 tests)
+    swift test                 # ImperumCore logic + samplers + tap detector + CopyStackKit (382 tests)
     swift run ImperumTool        # run from source

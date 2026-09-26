@@ -321,3 +321,124 @@ Safari; concealed copy from 1Password never appears; excluded app ignored;
 pause/resume; ⌘V then Enter within 300 ms in the right order; panel opens
 on the display with the mouse; session-only mode leaves no files; Clear
 Stack removes blobs; hotkey-only mode has zero paste delay.
+
+## Addendum (2026-09-26): terminal picker
+
+Adds `copystack`, a standalone TTY picker, and routes the double-tap ⌘V /
+⌘⇧V trigger to it instead of the SwiftUI panel when the frontmost app is a
+supported terminal.
+
+### Architecture
+
+- `CopyStackKit` (a library target, shared by `copystack` and `ImperumTool`)
+  holds everything with no AppKit/terminal I/O: `CLIArgs` (argv parsing),
+  `KeyParser` (raw bytes → `Key`), `PickerModel` (pure state/reduce),
+  `FrameRenderer` (state → ANSI text), `Sanitize`/`DisplayWidth`,
+  `Protocol`/`ProtocolCodec` (the wire format), `SocketPath`, `HostCommand`
+  (per-terminal AppleScript/CLI strings, pure), and `FocusWait`.
+- `Sources/copystack` is the executable: `TTYSession` (raw mode, alternate
+  screen, `select(2)`-based polling, signal-safe restore) plus `main.swift`,
+  which parses argv, connects over the socket, and either prints `list`
+  output or runs the interactive `KeyParser` → `PickerModel` → `FrameRenderer`
+  loop.
+- In `ImperumTool`, `CopyStackServer` owns the Unix socket
+  (`RequestHandler` from `CopyStackKit` over a `ClipBackend` adapting
+  `ClipStore`), `TerminalHosts`/`HostCommand` open and position a host
+  window, and `PickSession` drives one end-to-end session: open the host
+  window, arm a 3s connect timeout for the picker's `hello`, track the
+  pending paste from the socket, and run `FocusWait` (a pure state machine)
+  once the picker's connection closes, to decide when it's safe to post
+  ⌘V back into the origin terminal (wait for it to be frontmost and
+  focused with the picker window gone, nudge once if slow, give up with a
+  HUD hint after a timeout).
+- Socket protocol ops (newline-delimited JSON, `Sources/CopyStackKit/Protocol.swift`):
+  `hello` (optionally carrying a session token), `list`, `get`, `paste`,
+  `copy`, `pin`, `delete`. Clips cross the wire as `ClipSummary`, whose
+  text preview is cut to 2048 UTF-8 bytes (`ClipSummary.defaultPreviewLimit`)
+  at a grapheme boundary — search inside the picker (`ClipFilter`, reused
+  unchanged from the panel) therefore only sees that much of a long clip's
+  body, unlike the panel, which filters the full in-process `Clip`.
+
+### Hosts
+
+| App | Open | Sizing | Close |
+|---|---|---|---|
+| Ghostty | AppleScript (`new surface configuration`); falls back to an `openApp` launch of a new instance | AppleScript path has no size property (fixed 900×560 on screen); the `openApp` fallback sizes itself via `--window-width/--window-height` | Ghostty's own `close window` AppleScript verb (its windows reject the standard "close" event) |
+| cmux | cmux's own CLI (`new-window` + `send`) if the CLI is reachable, else AppleScript `perform action "text: …"` | No sizing mechanism at all (CLI or AppleScript) — fixed 900×560 | The CLI's `close-window` (cmux windows reject the standard "close" event too) |
+| iTerm2 | AppleScript `create window with default profile command` | Sets `columns`/`rows` natively | AppleScript close by window id |
+| kitty | `openApp` launch of a new instance with `-o initial_window_width/height` | Sizes itself at launch | No scriptable close by id; the new instance is simply terminated |
+| Terminal | AppleScript `do script` | Sets `number of columns/rows` natively | AppleScript close by window id |
+| Warp | Not supported — always falls back to the panel | — | — |
+
+Whichever launch strategy wins, `TerminalHosts.position` polls (up to 1.5s)
+for the AX window carrying the picker's OSC-2-set title
+(`Copy Stack · <first 6 hex of the session token>`), raises it, and centres
+it under the mouse at a fixed 900×560 unless the launch already sized it.
+
+### Security
+
+- The socket (`~/Library/Application Support/Imperum Tool/copystack.sock`,
+  falling back to a `tmp/io.imperum.tool.copystack.sock` path if the home
+  directory one would exceed `sun_path`'s 103-byte limit) is created with
+  its parent directory at mode `0700`; the socket file itself is `0600`,
+  so only the same local user account can connect. `IMPERUM_COPYSTACK_SOCK`
+  overrides the path (tests use this).
+- The server only runs while both "Enable clipboard history" and "Allow
+  command-line access" are on, and stops (removing the socket) when either
+  is turned off or the app quits.
+- Every clip-derived string that reaches a terminal frame or an AppleScript
+  string literal — title, file names, `sourceAppName`, the typed query —
+  goes through `Sanitize` before rendering, so a maliciously named clip or
+  file can't inject terminal escape sequences into `copystack`'s frame or
+  spoof AppleScript.
+- No clip content ever appears in a process's argv: `--session` is a random
+  128-bit hex token (`PickSession.randomToken`, `SecRandomCopyBytes`),
+  checked in `CLIArgs.parse` to be 8-64 hex characters before it can reach
+  an OSC 2 title-setting escape sequence, and is otherwise meaningless
+  outside identifying the session over the socket.
+- `RequestHandler`'s pin/delete/paste/copy errors are surfaced in the
+  picker's footer rather than silently dropped, and any socket error is
+  treated as a lost connection: the tty is restored and the process exits
+  with the standard "not running" message.
+
+### Settings
+
+Settings › Clipboard › Terminal adds: the terminal-picker toggle, the
+command-line-access toggle, a cmux socket-password field (only needed if
+cmux's own Settings has one set; stored in Imperum Tool's own preferences,
+not the Keychain), a per-terminal status row (Ready / automation denied /
+not running / launch failed / picker did not start), and the
+"Install command-line tool…" button (falls back to a copyable `ln -s`
+command when the app isn't bundled with `copystack` yet, e.g. a dev build).
+
+### Packaging
+
+`copystack` ships inside the app bundle at `Contents/MacOS/copystack`,
+built and signed by `build.sh` with its own identifier
+(`io.imperum.tool.copystack`) before the main executable and bundle are
+re-signed. The app carries the `com.apple.security.automation.apple-events`
+entitlement and an `NSAppleEventsUsageDescription` in `Info.plist`, both
+needed to script the terminal hosts above.
+
+### Testing
+
+Unit-tested in `CopyStackKitTests` (238 tests): `CLIArgsTests` (every
+grammar form and error case), `KeyParserTests` (byte-by-byte and
+across-feed-boundary decoding, UTF-8/CSI/paste edge cases), `PickerModelTests`
+/`FrameRendererTests` (reduce/render, scroll math, sanitisation),
+`ProtocolTests` (wire round-trips, `ClipSummary` truncation),
+`SocketPathTests`, `HostCommandTests` (the exact AppleScript/CLI strings
+per host), `FocusWaitTests` (every wait/nudge/post/timeout transition),
+`TerminalAppTests` (bundle-id detection incl. the cmux debug build's
+suffixed id), `RequestHandlerTests`, and `UnixSocketTests` for the
+transport itself.
+
+Not unit-tested, manual only: actually opening/sizing/closing a window in
+each live terminal app (needs that app installed, running, and Automation
+access granted); the tmux popup binding end-to-end (needs an attached tmux
+client); `PickSession`'s real-world `Timer`-driven focus wait against an
+actual window manager; the Settings tab's live per-terminal status text;
+and running the real `copystack` binary against the real running app's
+socket (Task 8's report covers exercising `copystack` itself against a
+stand-in socket server instead, since starting/stopping the real app
+during development was out of scope).
