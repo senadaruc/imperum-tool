@@ -72,6 +72,15 @@ final class ClipArchiveTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.appendingPathComponent("blobs").path), [])
     }
 
+    func testDeleteAllRemovesFaviconsDirectory() throws {
+        let a = archive()
+        let favicons = dir.appendingPathComponent("favicons")
+        try FileManager.default.createDirectory(at: favicons, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: favicons.appendingPathComponent("example.com.ico"))
+        try a.deleteAll()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: favicons.path))
+    }
+
     private enum KeychainDown: Error { case locked }
     private struct ThrowingKeyProvider: ArchiveKeyProvider {
         func key() throws -> SymmetricKey { throw KeychainDown.locked }

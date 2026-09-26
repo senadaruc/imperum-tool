@@ -77,6 +77,11 @@ public final class ClipArchive {
         if fm.fileExists(atPath: blobsDir.path) { try fm.removeItem(at: blobsDir) }
         try fm.createDirectory(at: blobsDir, withIntermediateDirectories: true,
                                attributes: [.posixPermissions: 0o700])
+        // The favicon cache (Sources/ImperumTool/FaviconLoader.swift) writes
+        // plaintext <host>.ico files here — a list of every domain whose
+        // link was copied — so it must go with everything else on Clear.
+        let favicons = directory.appendingPathComponent("favicons")
+        if fm.fileExists(atPath: favicons.path) { try fm.removeItem(at: favicons) }
     }
 
     // MARK: Sealing

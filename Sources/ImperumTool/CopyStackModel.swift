@@ -19,17 +19,20 @@ final class CopyStackModel: ObservableObject {
 
     let store: ClipStore
     let settings: ClipboardSettingsStore
-    private let archive: () -> ClipArchive?
     /// Cache-first, then archive lookup: `(id, suffix)` -> the blob's
     /// plaintext, if available anywhere (works in session-only mode).
     private let blobLookup: (UUID, String) -> Data?
+    /// Where the favicon disk cache lives, or nil to stay memory-only for
+    /// the rest of this launch (the controller returns nil in session-only
+    /// mode, so no host list is ever written to disk).
+    private let faviconCacheDir: () -> URL?
     private var thumbs: [UUID: NSImage] = [:]
     private let favicons = FaviconLoader()
     private var bag = Set<AnyCancellable>()
 
-    init(store: ClipStore, settings: ClipboardSettingsStore, archive: @escaping () -> ClipArchive?,
-         blobLookup: @escaping (UUID, String) -> Data?) {
-        self.store = store; self.settings = settings; self.archive = archive; self.blobLookup = blobLookup
+    init(store: ClipStore, settings: ClipboardSettingsStore, blobLookup: @escaping (UUID, String) -> Data?,
+         faviconCacheDir: @escaping () -> URL?) {
+        self.store = store; self.settings = settings; self.blobLookup = blobLookup; self.faviconCacheDir = faviconCacheDir
         store.$clips.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.recompute() }.store(in: &bag)
         favicons.onLoaded = { [weak self] in self?.objectWillChange.send() }
     }
@@ -80,7 +83,7 @@ final class CopyStackModel: ObservableObject {
     func favicon(for clip: Clip) -> NSImage? {
         guard settings.settings.showFavicons, clip.kind == .link, case .text(let s) = clip.payload,
               let host = URL(string: s)?.host else { return nil }
-        return favicons.icon(forHost: host, cacheDir: archive()?.directory.appendingPathComponent("favicons"))
+        return favicons.icon(forHost: host, cacheDir: faviconCacheDir())
     }
 
     private func recompute() {

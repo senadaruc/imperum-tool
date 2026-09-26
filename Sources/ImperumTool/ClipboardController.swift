@@ -24,8 +24,13 @@ final class ClipboardController {
     /// the archive never sees the blob (session-only mode) or is unavailable.
     private let blobCache = BlobCache()
     private lazy var paster = ClipPaster(blobLookup: { [weak self] id, suffix in self?.lookupBlob(id, suffix: suffix) })
-    private lazy var model = CopyStackModel(store: store, settings: settings, archive: { [weak self] in self?.archive },
-                                            blobLookup: { [weak self] id, suffix in self?.lookupBlob(id, suffix: suffix) })
+    private lazy var model = CopyStackModel(
+        store: store, settings: settings,
+        blobLookup: { [weak self] id, suffix in self?.lookupBlob(id, suffix: suffix) },
+        faviconCacheDir: { [weak self] in
+            guard let self, !self.settings.settings.clearOnQuit else { return nil }
+            return self.archive?.directory.appendingPathComponent("favicons")
+        })
     private lazy var panel = CopyStackPanel(model: model)
     private lazy var statusItem = ClipboardStatusItem(store: store, settings: settings)
     private var pollTimer: Timer?
