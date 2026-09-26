@@ -50,6 +50,8 @@ final class UnixSocketTests: XCTestCase {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         XCTAssertGreaterThanOrEqual(fd, 0)
         rawFDs.append(fd)
+        var noSigPipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -151,6 +153,24 @@ final class UnixSocketTests: XCTestCase {
                 return
             }
         }
+
+        // The flock-based single-instance guard must reject server2 before it
+        // ever probes/unlinks the socket path, so server1's socket file (and
+        // therefore server1 itself) must be completely unaffected.
+        var statInfo = stat()
+        XCTAssertEqual(stat(path, &statInfo), 0, "server1's socket file should still exist")
+        XCTAssertEqual(statInfo.st_mode & S_IFMT, S_IFSOCK)
+    }
+
+    // MARK: - Stale-socket errno classification
+
+    func testShouldReplaceStaleSocketClassifiesErrnos() {
+        XCTAssertTrue(SocketServer.shouldReplaceStaleSocket(errno: ECONNREFUSED))
+        XCTAssertTrue(SocketServer.shouldReplaceStaleSocket(errno: ENOENT))
+        XCTAssertTrue(SocketServer.shouldReplaceStaleSocket(errno: ENOTSOCK))
+
+        XCTAssertFalse(SocketServer.shouldReplaceStaleSocket(errno: EACCES))
+        XCTAssertFalse(SocketServer.shouldReplaceStaleSocket(errno: EPERM))
     }
 
     // MARK: - onConnect / onClose

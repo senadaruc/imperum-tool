@@ -3,13 +3,16 @@ import Darwin
 
 /// Errors raised by `SocketServer` and `SocketClient`.
 public enum SocketError: Error, Equatable {
-    /// `start()` was called on an instance that is already running.
+    /// `start()` was called on an instance that is already running or in the
+    /// middle of starting.
     case alreadyStarted
     case socketCreate(errno: Int32)
     case bind(errno: Int32)
     case chmod(errno: Int32)
     case listen(errno: Int32)
     case connect(errno: Int32)
+    /// Failed to open or lock the `<path>.lock` single-instance guard file.
+    case lockFile(errno: Int32)
     case closed
     case tooLong
     case badResponse
@@ -51,6 +54,14 @@ private func writeLineRetryingEINTR(fd: Int32, data: Data) -> Bool {
 /// A Unix-domain socket server speaking the copystack newline-delimited
 /// JSON protocol. Accepts connections on a background thread, one thread
 /// per connection, and rejects peers whose uid doesn't match ours.
+///
+/// Note: `start()` probes a pre-existing socket file at `path` by actually
+/// connecting to it (to distinguish a live listener from stale debris). If
+/// another live `SocketServer` owns that path, this probe completes a full
+/// connect/accept handshake against it before immediately closing — so a
+/// running server may observe one `onConnect`/`onClose` pair for a peer that
+/// never sends a single line. Consumers must tolerate sessions that connect
+/// and disconnect without ever writing anything.
 public final class SocketServer {
     public struct Connection {
         public let id: ConnectionID
@@ -67,9 +78,16 @@ public final class SocketServer {
 
     private let stateLock = NSLock()
     private var listenerFD: Int32 = -1
+    private var lockFD: Int32 = -1
     private var nextConnectionID: ConnectionID = 0
     private var openConnectionFDs: [ConnectionID: Int32] = [:]
     private var running = false
+    /// Set while `start()` is doing its (lock-free) setup work, so a second,
+    /// concurrent call to `start()` on the same instance fails fast instead
+    /// of racing this one to create a second listener.
+    private var starting = false
+
+    private var lockFilePath: String { path + ".lock" }
 
     public init(
         path: String,
@@ -92,69 +110,114 @@ public final class SocketServer {
     }
 
     /// Starts listening. Throws `.alreadyStarted` if this instance is already
-    /// running (call `stop()` first to restart it).
+    /// running, or if another call to `start()` on the same instance is
+    /// already in progress (call `stop()` first to restart it).
     public func start() throws {
         stateLock.lock()
-        guard !running else {
+        guard !running && !starting else {
             stateLock.unlock()
             throw SocketError.alreadyStarted
         }
+        starting = true
         stateLock.unlock()
 
-        // A file already at `path` might be a live instance's socket, not
-        // debris from a crash. Probe it with connect(): success means
-        // someone is actually listening, so refuse to steal the path
-        // (EADDRINUSE); a failed probe (ECONNREFUSED: nothing listening,
-        // ENOENT: raced away, or any other odd failure) means it's safe to
-        // remove and rebind.
-        if FileManager.default.fileExists(atPath: path) {
-            if SocketServer.probeExistingSocketIsLive(path: path) {
-                throw SocketError.bind(errno: EADDRINUSE)
+        defer {
+            stateLock.lock()
+            starting = false
+            stateLock.unlock()
+        }
+
+        var acquiredLockFD: Int32 = -1
+        do {
+            // Single-instance guard: acquire an exclusive, non-blocking flock
+            // on a dedicated lock file BEFORE touching the socket path at
+            // all. This closes the race where two starters could both probe
+            // the socket file below, both see it as stale, and both
+            // unlink+rebind it out from under each other.
+            let lockFD = open(lockFilePath, O_CREAT | O_RDWR, 0o600)
+            guard lockFD >= 0 else {
+                throw SocketError.lockFile(errno: errno)
             }
-            unlink(path)
-        }
+            guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
+                let flockErrno = errno
+                close(lockFD)
+                if flockErrno == EWOULDBLOCK {
+                    throw SocketError.bind(errno: EADDRINUSE)
+                }
+                throw SocketError.lockFile(errno: flockErrno)
+            }
+            acquiredLockFD = lockFD
 
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else {
-            throw SocketError.socketCreate(errno: errno)
-        }
-        SocketServer.setNoSigPipe(fd)
+            // A file already at `path` might be a live instance's socket
+            // that (for whatever reason) isn't participating in our lock
+            // file — e.g. a raw listener in a test — rather than debris from
+            // a crash. Probe it with connect(): success means someone is
+            // actually listening, so refuse to steal the path (EADDRINUSE).
+            // A failed probe only justifies removing the file when the
+            // errno specifically means "nothing is listening here"
+            // (ECONNREFUSED), "it's already gone" (ENOENT), or "that's not
+            // even a socket" (ENOTSOCK) — any other failure (e.g. EACCES)
+            // throws instead, since we can't tell it's safe to remove.
+            if FileManager.default.fileExists(atPath: path) {
+                let probeErrno = SocketServer.probeExistingSocket(path: path)
+                if probeErrno == 0 {
+                    throw SocketError.bind(errno: EADDRINUSE)
+                }
+                guard SocketServer.shouldReplaceStaleSocket(errno: probeErrno) else {
+                    throw SocketError.bind(errno: probeErrno)
+                }
+                unlink(path)
+            }
 
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let bound = SocketServer.withSockaddrPointer(path: path, addr: &addr) { sockPtr, len in
-            bind(fd, sockPtr, len)
-        }
-        guard bound == 0 else {
-            let bindErrno = errno
-            close(fd)
-            throw SocketError.bind(errno: bindErrno)
-        }
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else {
+                throw SocketError.socketCreate(errno: errno)
+            }
+            SocketServer.setNoSigPipe(fd)
 
-        guard chmod(path, 0o600) == 0 else {
-            let chmodErrno = errno
-            close(fd)
-            unlink(path)
-            throw SocketError.chmod(errno: chmodErrno)
-        }
+            var addr = sockaddr_un()
+            addr.sun_family = sa_family_t(AF_UNIX)
+            let bound = SocketServer.withSockaddrPointer(path: path, addr: &addr) { sockPtr, len in
+                bind(fd, sockPtr, len)
+            }
+            guard bound == 0 else {
+                let bindErrno = errno
+                close(fd)
+                throw SocketError.bind(errno: bindErrno)
+            }
 
-        guard listen(fd, 8) == 0 else {
-            let listenErrno = errno
-            close(fd)
-            unlink(path)
-            throw SocketError.listen(errno: listenErrno)
-        }
+            guard chmod(path, 0o600) == 0 else {
+                let chmodErrno = errno
+                close(fd)
+                unlink(path)
+                throw SocketError.chmod(errno: chmodErrno)
+            }
 
-        stateLock.lock()
-        listenerFD = fd
-        running = true
-        stateLock.unlock()
+            guard listen(fd, 8) == 0 else {
+                let listenErrno = errno
+                close(fd)
+                unlink(path)
+                throw SocketError.listen(errno: listenErrno)
+            }
 
-        let thread = Thread { [weak self] in
-            self?.acceptLoop(listenerFD: fd)
+            stateLock.lock()
+            listenerFD = fd
+            self.lockFD = acquiredLockFD
+            running = true
+            stateLock.unlock()
+
+            let thread = Thread { [weak self] in
+                self?.acceptLoop(listenerFD: fd)
+            }
+            thread.name = "copystack.socket.accept"
+            thread.start()
+        } catch {
+            if acquiredLockFD >= 0 {
+                flock(acquiredLockFD, LOCK_UN)
+                close(acquiredLockFD)
+            }
+            throw error
         }
-        thread.name = "copystack.socket.accept"
-        thread.start()
     }
 
     /// Stops accepting new connections and shuts down every currently open
@@ -174,6 +237,8 @@ public final class SocketServer {
         running = false
         let fd = listenerFD
         listenerFD = -1
+        let heldLockFD = lockFD
+        lockFD = -1
         // Shut down every still-open connection while holding the lock, but
         // leave their entries in `openConnectionFDs` in place. Each
         // connection's own thread removes its entry (also under this lock)
@@ -191,6 +256,12 @@ public final class SocketServer {
             close(fd)
         }
         unlink(path)
+
+        if heldLockFD >= 0 {
+            flock(heldLockFD, LOCK_UN)
+            close(heldLockFD)
+            unlink(lockFilePath)
+        }
     }
 
     // MARK: - Accept loop
@@ -258,8 +329,12 @@ public final class SocketServer {
 
             // peerUIDMatches already confirmed the peer's uid equals ours.
             let connection = Connection(id: connectionID, peerUID: getuid())
-            let thread = Thread { [weak self] in
-                self?.handleConnection(connection, fd: clientFD)
+            // Captured strongly: this thread is short-lived and owns
+            // `clientFD` end-to-end. A weak capture could let the fd (and
+            // the missing onClose) leak if the server were deallocated
+            // while this thread was still starting up.
+            let thread = Thread { [self] in
+                self.handleConnection(connection, fd: clientFD)
             }
             thread.name = "copystack.socket.conn.\(connectionID)"
             thread.start()
@@ -326,11 +401,11 @@ public final class SocketServer {
     }
 
     /// Probes an existing socket file at `path` by attempting to connect to
-    /// it. Returns `true` only when a live listener actually accepted the
-    /// connection.
-    fileprivate static func probeExistingSocketIsLive(path: String) -> Bool {
+    /// it. Returns `0` when a live listener actually accepted the
+    /// connection, or the `connect()`/`socket()` errno on failure.
+    fileprivate static func probeExistingSocket(path: String) -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
+        guard fd >= 0 else { return errno }
         defer { close(fd) }
 
         var addr = sockaddr_un()
@@ -338,7 +413,27 @@ public final class SocketServer {
         let result = SocketServer.withSockaddrPointer(path: path, addr: &addr) { sockPtr, len in
             connect(fd, sockPtr, len)
         }
-        return result == 0
+        if result == 0 { return 0 }
+        return errno
+    }
+
+    /// Whether a failed probe `connect()` to an existing socket file
+    /// justifies removing that file and rebinding the path: only when the
+    /// errno specifically means nothing is listening there (`ECONNREFUSED`),
+    /// the path is already gone (`ENOENT`), or the file isn't a socket at all
+    /// (`ENOTSOCK`). Any other errno (notably `EACCES`) must never cause an
+    /// unlink, since it doesn't tell us it's safe to remove.
+    ///
+    /// Internal (rather than `fileprivate`) so tests can exercise the errno
+    /// classification directly via `@testable import`, without needing to
+    /// reproduce awkward-to-simulate filesystem permission failures.
+    internal static func shouldReplaceStaleSocket(errno: Int32) -> Bool {
+        switch errno {
+        case ECONNREFUSED, ENOENT, ENOTSOCK:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Builds a `sockaddr_un` for `path` and invokes `body` with a `sockaddr`
