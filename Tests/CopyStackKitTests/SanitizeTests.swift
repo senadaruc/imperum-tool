@@ -54,6 +54,14 @@ final class SanitizeTests: XCTestCase {
         XCTAssertEqual(Sanitize.lines("a\nb\nc", max: 2), ["a", "b"])
     }
 
+    func testLinesDropsSingleTrailingEmptyLineFromTrailingNewline() {
+        XCTAssertEqual(Sanitize.lines("a\nb\n", max: 10), ["a", "b"])
+    }
+
+    func testLinesKeepsInteriorEmptyLines() {
+        XCTAssertEqual(Sanitize.lines("a\n\nb", max: 10), ["a", "", "b"])
+    }
+
     func testLinesSanitizesEachLine() {
         let result = Sanitize.lines("a\u{1B}[31mb\nc\td", max: 10)
         XCTAssertEqual(result, ["a·b", "c    d"])

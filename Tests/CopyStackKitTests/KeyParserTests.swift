@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 @testable import CopyStackKit
 
 final class KeyParserTests: XCTestCase {
@@ -130,5 +131,89 @@ final class KeyParserTests: XCTestCase {
     func testMultipleCharsInOneFeed() {
         var p = KeyParser()
         XCTAssertEqual(p.feed(Array("ab".utf8)), [.char("a"), .char("b")])
+    }
+
+    func testNulByteIsUnknownNotChar() {
+        var p = KeyParser()
+        XCTAssertEqual(p.feed([0x00]), [.unknown([0])])
+    }
+
+    // MARK: - Fix round 1: UTF-8 buffer interruption
+
+    func testInterruptedUTF8SequenceIsDiscardedNotSwallowed() {
+        var p = KeyParser()
+        // Start of a 4-byte UTF-8 sequence, never completed.
+        XCTAssertEqual(p.feed([0xF0]), [])
+        // A control byte arrives instead of a continuation byte.
+        XCTAssertEqual(p.feed([0x03]), [.ctrl("c")])
+        // The next keystroke must not be swallowed by the stale buffer.
+        XCTAssertEqual(p.feed(Array("A".utf8)), [.char("A")])
+    }
+
+    func testInterruptedUTF8SequenceByESCIsDiscarded() {
+        var p = KeyParser()
+        XCTAssertEqual(p.feed([0xE6]), [])
+        XCTAssertEqual(p.feed([0x1B]), [])
+        XCTAssertTrue(p.hasPendingEscape)
+        XCTAssertEqual(p.flushTimeout(), [.escape])
+        XCTAssertEqual(p.feed(Array("B".utf8)), [.char("B")])
+    }
+
+    // MARK: - Fix round 1: CSI param / paste body caps and O(n) performance
+
+    func testCSIParamCapEmitsUnknownAndResetsToNormal() {
+        var p = KeyParser()
+        // 70 param bytes with no final byte: exceeds the 64-byte cap.
+        let overflow = [UInt8](repeating: 0x30, count: 70)
+        let bytes: [UInt8] = [0x1B, 0x5B] + overflow
+        let keys = p.feed(bytes)
+        XCTAssertTrue(keys.contains(where: {
+            if case .unknown = $0 { return true } else { return false }
+        }))
+        // Parser must have reset to normal and remain usable.
+        XCTAssertEqual(p.feed(Array("x".utf8)), [.char("x")])
+    }
+
+    func testPasteBodyCapEmitsPartialPasteAndResetsToNormal() {
+        var p = KeyParser()
+        XCTAssertEqual(p.feed(Array("\u{1B}[200~".utf8)), [])
+        let chunk = [UInt8](repeating: 0x61, count: 64 * 1024) // 64 KiB of 'a'
+        var sawPaste = false
+        for _ in 0..<20 { // 20 * 64 KiB = 1.25 MiB, exceeds the 1 MiB cap
+            let keys = p.feed(chunk)
+            if keys.contains(where: {
+                if case .paste = $0 { return true } else { return false }
+            }) {
+                sawPaste = true
+                break
+            }
+        }
+        XCTAssertTrue(sawPaste, "expected a partial .paste once the cap was exceeded")
+        // Parser must have reset to normal and remain usable.
+        XCTAssertEqual(p.feed(Array("z".utf8)), [.char("z")])
+    }
+
+    func testUnterminatedCSIRunDoesNotHangOnLargeInput() {
+        var p = KeyParser()
+        _ = p.feed([0x1B, 0x5B]) // start a CSI sequence, never terminated
+        let chunk = [UInt8](repeating: 0x30, count: 64 * 1024)
+        let start = Date()
+        for _ in 0..<32 { // 32 * 64 KiB = 2 MiB total
+            _ = p.feed(chunk)
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertLessThan(elapsed, 2.0, "unterminated CSI parsing must stay linear in input size")
+    }
+
+    func testUnterminatedPasteDoesNotHangOnLargeInput() {
+        var p = KeyParser()
+        _ = p.feed(Array("\u{1B}[200~".utf8)) // start a paste, never terminated
+        let chunk = [UInt8](repeating: 0x61, count: 64 * 1024)
+        let start = Date()
+        for _ in 0..<32 { // 32 * 64 KiB = 2 MiB total
+            _ = p.feed(chunk)
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertLessThan(elapsed, 2.0, "unterminated paste parsing must stay linear in input size")
     }
 }

@@ -56,9 +56,18 @@ public enum Sanitize {
 
     /// Splits `s` on `\n` (before any replacement), sanitises each line, and
     /// returns at most `max` lines.
+    ///
+    /// A single trailing empty element produced by a trailing newline (e.g.
+    /// `"a\nb\n"` splitting to `["a", "b", ""]`) is dropped, since a
+    /// trailing newline is conventionally the terminator of the last line,
+    /// not a signal of an additional blank line after it. Interior empty
+    /// lines (`"a\n\nb"`) are preserved.
     public static func lines(_ s: String, max: Int) -> [String] {
-        let rawLines = s.split(separator: "\n", omittingEmptySubsequences: false)
-        return rawLines.prefix(max).map { line(String($0)) }
+        var rawLines = s.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if s.hasSuffix("\n"), rawLines.last == "" {
+            rawLines.removeLast()
+        }
+        return rawLines.prefix(max).map { line($0) }
     }
 
     // MARK: - Sequence consumption

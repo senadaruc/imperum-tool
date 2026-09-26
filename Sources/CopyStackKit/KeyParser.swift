@@ -35,12 +35,30 @@ public struct KeyParser {
         case normal
         case afterEsc                 // saw ESC, waiting for next byte
         case afterEscBracket          // saw ESC [
-        case csiParams([UInt8])       // collecting CSI parameter/intermediate bytes after ESC [
+        case csiParams                // collecting CSI parameter/intermediate bytes after ESC [ (buffered in `csiBuffer`)
         case afterEscO                // saw ESC O (SS3)
-        case pasteBody([UInt8])       // inside bracketed paste, collecting bytes until ESC[201~
+        case pasteBody                // inside bracketed paste, collecting bytes until ESC[201~ (buffered in `pasteBuffer`)
     }
 
+    /// Guards against unbounded growth (and the O(n²) blowup a growing
+    /// associated-value array would cause) when a CSI sequence is never
+    /// terminated. Exceeding this many collected parameter/intermediate
+    /// bytes emits `.unknown` for what was collected and resets to `.normal`.
+    private static let maxCSIParamBytes = 64
+
+    /// Guards against unbounded memory growth when a bracketed paste is
+    /// never terminated (e.g. a dropped ESC[201~). Exceeding this many
+    /// collected bytes emits `.paste` with what was collected so far and
+    /// resets to `.normal`; subsequent bytes are parsed as ordinary input.
+    private static let maxPasteBytes = 1 * 1024 * 1024 // 1 MiB
+
     private var state: State = .normal
+    // These buffers are stored properties (not enum associated values) so
+    // that appending a byte mutates them in place (amortized O(1)) instead
+    // of copy-on-write duplicating the whole buffer on every byte, which
+    // previously made an unterminated CSI/paste run O(n²) in its length.
+    private var csiBuffer: [UInt8] = []
+    private var pasteBuffer: [UInt8] = []
     private var utf8Buffer: [UInt8] = []
 
     public init() {}
@@ -57,9 +75,14 @@ public struct KeyParser {
             let b = bytes[i]
             switch state {
             case .normal:
-                if b == 0x1B {
+                if b == 0x00 {
+                    discardIncompleteUTF8IfAny()
+                    out.append(.unknown([0]))
+                } else if b == 0x1B {
+                    discardIncompleteUTF8IfAny()
                     state = .afterEsc
                 } else if let key = mapControlByte(b) {
+                    discardIncompleteUTF8IfAny()
                     out.append(key)
                 } else {
                     // Part of a (possibly multi-byte) UTF-8 character.
@@ -107,21 +130,24 @@ public struct KeyParser {
                 case 0x46: out.append(.end); state = .normal
                 default:
                     if b >= 0x30 && b <= 0x39 { // digit: start collecting params
-                        state = .csiParams([b])
+                        csiBuffer = [b]
+                        state = .csiParams
                     } else if b >= 0x40 && b <= 0x7E {
                         // Final byte with no params collected: unknown CSI.
                         out.append(.unknown([0x1B, 0x5B, b]))
                         state = .normal
                     } else {
                         // Intermediate byte (e.g. '?'); keep collecting as params.
-                        state = .csiParams([b])
+                        csiBuffer = [b]
+                        state = .csiParams
                     }
                 }
 
-            case .csiParams(let collected):
+            case .csiParams:
                 if b >= 0x40 && b <= 0x7E {
                     // Final byte reached.
-                    let params = collected
+                    let params = csiBuffer
+                    csiBuffer.removeAll()
                     if b == 0x7E {
                         switch paramsString(params) {
                         case "5":
@@ -137,9 +163,8 @@ public struct KeyParser {
                             out.append(.end)
                             state = .normal
                         case "200":
-                            state = .pasteBody([])
-                            i += 1
-                            continue
+                            pasteBuffer.removeAll()
+                            state = .pasteBody
                         default:
                             out.append(.unknown([0x1B, 0x5B] + params + [b]))
                             state = .normal
@@ -149,23 +174,29 @@ public struct KeyParser {
                         state = .normal
                     }
                 } else {
-                    var next = collected
-                    next.append(b)
-                    state = .csiParams(next)
+                    csiBuffer.append(b)
+                    if csiBuffer.count > Self.maxCSIParamBytes {
+                        out.append(.unknown([0x1B, 0x5B] + csiBuffer))
+                        csiBuffer.removeAll()
+                        state = .normal
+                    }
                 }
 
-            case .pasteBody(let collected):
+            case .pasteBody:
                 // Look for ESC [ 2 0 1 ~ terminator.
                 let terminator: [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]
-                var buf = collected
-                buf.append(b)
-                if buf.count >= terminator.count && Array(buf.suffix(terminator.count)) == terminator {
-                    let payload = Array(buf.prefix(buf.count - terminator.count))
+                pasteBuffer.append(b)
+                if pasteBuffer.count >= terminator.count && Array(pasteBuffer.suffix(terminator.count)) == terminator {
+                    let payload = Array(pasteBuffer.prefix(pasteBuffer.count - terminator.count))
                     let text = String(decoding: payload, as: UTF8.self)
                     out.append(.paste(text))
+                    pasteBuffer.removeAll()
                     state = .normal
-                } else {
-                    state = .pasteBody(buf)
+                } else if pasteBuffer.count > Self.maxPasteBytes {
+                    let text = String(decoding: pasteBuffer, as: UTF8.self)
+                    out.append(.paste(text))
+                    pasteBuffer.removeAll()
+                    state = .normal
                 }
             }
             i += 1
@@ -213,7 +244,15 @@ public struct KeyParser {
     /// Feeds one byte into the UTF-8 assembly buffer. Returns the assembled
     /// Character(s) once a complete scalar is available, or nil if more
     /// continuation bytes are still needed.
+    ///
+    /// If a byte arrives that is not a valid continuation byte (0x80–0xBF)
+    /// while a multi-byte sequence is pending, the stale, incomplete bytes
+    /// are discarded first so a later valid byte isn't mistaken for more of
+    /// the abandoned sequence and swallowed.
     private mutating func consumeUTF8Byte(_ b: UInt8) -> [Character]? {
+        if !utf8Buffer.isEmpty && (b & 0xC0) != 0x80 {
+            utf8Buffer.removeAll()
+        }
         utf8Buffer.append(b)
         let expected = utf8ExpectedLength
         if utf8Buffer.count >= expected {
@@ -222,6 +261,16 @@ public struct KeyParser {
             return Array(s)
         }
         return nil
+    }
+
+    /// Discards a pending, incomplete UTF-8 sequence when it is interrupted
+    /// by a byte that is handled outside `consumeUTF8Byte` entirely (a NUL,
+    /// an ESC, or a mapped control byte). Without this, the abandoned bytes
+    /// would remain buffered and corrupt the next character's decoding.
+    private mutating func discardIncompleteUTF8IfAny() {
+        if !utf8Buffer.isEmpty {
+            utf8Buffer.removeAll()
+        }
     }
 
     private func paramsString(_ params: [UInt8]) -> String {
