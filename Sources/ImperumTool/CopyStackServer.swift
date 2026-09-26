@@ -15,30 +15,32 @@ final class StoreBackend: ClipBackend {
 
 /// Owns the Unix socket for the `copystack` CLI. All handler work runs on the main thread.
 final class CopyStackServer {
+    /// Everything that belongs to one running instance of the socket server:
+    /// its `RequestHandler` (session-by-connection state) and the standalone
+    /// pastes it has queued, keyed by connection id.
+    ///
+    /// `SocketServer` connection ids restart at 0 on every `start()`, and a
+    /// stopped server's `onClose` may still fire after `stop()` has already
+    /// returned (see `SocketServer.stop()`'s doc comment). Without this,
+    /// such a late callback from an old, already-replaced server instance
+    /// could clear a brand-new connection's session or post an unrelated
+    /// pending paste. Each `start()` creates a fresh `Generation`, and the
+    /// socket callbacks for that server capture it directly (not
+    /// `self.currentGeneration`), so a callback from a stopped server always
+    /// keeps operating on its own, by-then-orphaned `Generation` and can
+    /// never touch a newer one's state.
+    private final class Generation {
+        var handler: RequestHandler!
+        var currentConnection: ConnectionID = -1
+        var pendingStandalonePaste: [ConnectionID: Clip] = [:]
+    }
+
     private let store: ClipStore
     private let settings: ClipboardSettingsStore
     private let paster: ClipPaster
     private let commitPasted: (Clip) -> Void
 
-    // `lazy` so the closures below can capture `self` weakly only once it's
-    // fully initialized.
-    private lazy var handler = RequestHandler(
-        backend: StoreBackend(store: store),
-        isEnabled: { [weak self] in
-            guard let self else { return false }
-            return self.settings.settings.enabled && self.settings.settings.allowCLI
-        },
-        onPaste: { [weak self] clip, session in self?.handlePaste(clip, session: session) ?? .failure(.disabled) },
-        onCopy: { [weak self] clip in self?.handleCopy(clip) ?? false })
     private var socketServer: SocketServer?
-    /// Set on main just before `handler.handle` is invoked, from the same
-    /// `DispatchQueue.main.sync` call that reads it back inside `onPaste`, so
-    /// concurrent connections never see each other's value.
-    private var currentConnection: SocketServer.ConnectionID = -1
-    /// A standalone `--paste` (no session) whose ⌘V and top-of-stack move
-    /// are deferred to the CLI's disconnect, so the pasteboard write lands
-    /// before the CLI process exits and steals focus back.
-    private var pendingStandalonePaste: [SocketServer.ConnectionID: Clip] = [:]
 
     /// Task 10 sets this; when nil, a session paste behaves like a standalone paste.
     var onSessionPaste: ((SessionID, Clip) -> Void)?
@@ -54,6 +56,8 @@ final class CopyStackServer {
 
     var isRunning: Bool { socketServer?.isRunning ?? false }
 
+    private var isEnabledNow: Bool { settings.settings.enabled && settings.settings.allowCLI }
+
     /// Resolves the socket path, creates its parent directory (mode 0700) if
     /// needed, and starts `SocketServer`. Logs and stays stopped on error.
     func start() {
@@ -67,11 +71,32 @@ final class CopyStackServer {
             NSLog("Imperum Tool copystack: failed to create socket directory \(dir): \(error)")
             return
         }
+
+        let generation = Generation()
+        generation.handler = RequestHandler(
+            backend: StoreBackend(store: store),
+            isEnabled: { [weak self] in self?.isEnabledNow ?? false },
+            onPaste: { [weak self, weak generation] clip, session in
+                guard let self, let generation else { return .failure(.disabled) }
+                return self.handlePaste(clip, session: session, generation: generation)
+            },
+            onCopy: { [weak self] clip in self?.handleCopy(clip) ?? false })
+
+        // `generation` is captured strongly here (not weakly, unlike the
+        // RequestHandler closures above): these closures are held by
+        // `SocketServer`, which outlives `stop()` until its own threads
+        // finish, and this `Generation` must stay alive for that whole
+        // lifetime so a late callback still has valid (if by-then-orphaned)
+        // state to operate on instead of silently becoming a no-op.
         let server = SocketServer(
             path: path,
             onConnect: { _ in },
-            onLine: { [weak self] connection, data in self?.handleLine(connection: connection, data: data) },
-            onClose: { [weak self] connection in self?.handleClose(connection: connection) })
+            onLine: { [weak self] connection, data in
+                self?.handleLine(connection: connection, data: data, generation: generation)
+            },
+            onClose: { [weak self] connection in
+                self?.handleClose(connection: connection, generation: generation)
+            })
         do {
             try server.start()
             socketServer = server
@@ -87,42 +112,47 @@ final class CopyStackServer {
 
     // MARK: - Socket callbacks (arrive on the server's own threads)
 
-    private func handleLine(connection: SocketServer.Connection, data: Data) -> Data? {
+    private func handleLine(connection: SocketServer.Connection, data: Data, generation: Generation) -> Data? {
         DispatchQueue.main.sync {
             switch ProtocolCodec.decodeRequest(data) {
             case .failure(let code):
                 return try? ProtocolCodec.encode(.error(code: code, message: "malformed request"))
             case .success(let request):
-                currentConnection = connection.id
-                let response = handler.handle(request, connection: connection.id)
+                generation.currentConnection = connection.id
+                let response = generation.handler.handle(request, connection: connection.id)
                 return try? ProtocolCodec.encode(response)
             }
         }
     }
 
-    private func handleClose(connection: SocketServer.Connection) {
+    private func handleClose(connection: SocketServer.Connection, generation: Generation) {
         DispatchQueue.main.sync {
-            let session = handler.session(for: connection.id)
-            handler.connectionClosed(connection.id)
+            let session = generation.handler.session(for: connection.id)
+            generation.handler.connectionClosed(connection.id)
             onConnectionClosed?(connection.id, session)
-            guard let clip = pendingStandalonePaste.removeValue(forKey: connection.id) else { return }
+            guard let clip = generation.pendingStandalonePaste.removeValue(forKey: connection.id) else { return }
             // Give the CLI process time to exit and yield focus back to the
             // app the user was in before we post ⌘V.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self, self.isEnabledNow else { return }
                 ClipPaster.postPaste()
-                self?.commitPasted(clip)
+                // Re-read the clip: a pin toggle (or delete) in the 150ms gap
+                // must be reflected, and a deleted clip must not be
+                // resurrected by committing a stale copy of it.
+                guard let current = self.store.clip(id: clip.id) else { return }
+                self.commitPasted(current)
             }
         }
     }
 
     // MARK: - Request handling (already on main, via handleLine's sync hop)
 
-    private func handlePaste(_ clip: Clip, session: SessionID?) -> Result<Void, PasteError> {
+    private func handlePaste(_ clip: Clip, session: SessionID?, generation: Generation) -> Result<Void, PasteError> {
         guard paster.write(clip) else { return .failure(.imageMissing) }
         if let session, let onSessionPaste {
             onSessionPaste(session, clip)
         } else {
-            pendingStandalonePaste[currentConnection] = clip
+            generation.pendingStandalonePaste[generation.currentConnection] = clip
         }
         return .success(())
     }
