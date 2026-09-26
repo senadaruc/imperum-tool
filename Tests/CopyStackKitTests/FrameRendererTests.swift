@@ -133,6 +133,89 @@ final class FrameRendererTests: XCTestCase {
         }
     }
 
+    // MARK: - Sanitization of clip-derived strings
+
+    private func fileSummary(name: String, source: String = "Finder", secondsAgo: TimeInterval = 30) -> ClipSummary {
+        let clip = Clip(
+            id: UUID(), kind: .file, capturedAt: now.addingTimeInterval(-secondsAgo),
+            sourceAppName: source, sourceBundleID: nil, isPinned: false,
+            title: name, payload: .fileURLs([URL(fileURLWithPath: "/tmp/\(name)")])
+        )
+        return ClipSummary(clip: clip)
+    }
+
+    func testFileNameWithEscapeSequenceIsSanitizedInPreviewBox() {
+        let evilName = "evil\u{1B}[31m.txt"
+        let summaries = [fileSummary(name: evilName)]
+        let m = PickerModel(summaries: summaries, mode: .paste, now: now, calendar: calendar)
+        // rows >= 20 shows the preview box, where the file name is listed.
+        let frame = FrameRenderer.render(m, size: TerminalSize(cols: 100, rows: 30), now: now, calendar: calendar, noColor: true)
+        let plain = FrameRenderer.plain(frame)
+        XCTAssertFalse(plain.contains("\u{1B}"))
+        XCTAssertTrue(plain.contains("·"), "escape sequence in the file name must be replaced with a visible marker")
+    }
+
+    func testFileNameWithEscapeSequenceIsSanitizedInTitleColumn() {
+        let evilTitle = "evil\u{1B}[31m.txt"
+        let summaries = [fileSummary(name: evilTitle)]
+        let m = PickerModel(summaries: summaries, mode: .paste, now: now, calendar: calendar)
+        let frame = FrameRenderer.render(m, size: TerminalSize(cols: 100, rows: 10), now: now, calendar: calendar, noColor: true)
+        let plain = FrameRenderer.plain(frame)
+        XCTAssertFalse(plain.contains("\u{1B}"))
+        XCTAssertTrue(plain.contains("·"))
+    }
+
+    func testSourceAppNameWithEscapeSequenceIsSanitized() {
+        let summaries = [summary(title: "note", source: "Evil\u{1B}[31mApp", secondsAgo: 30)]
+        let m = PickerModel(summaries: summaries, mode: .paste, now: now, calendar: calendar)
+        let frame = FrameRenderer.render(m, size: TerminalSize(cols: 100, rows: 10), now: now, calendar: calendar, noColor: true)
+        let plain = FrameRenderer.plain(frame)
+        XCTAssertFalse(plain.contains("\u{1B}"))
+        XCTAssertTrue(plain.contains("·"))
+    }
+
+    func testImageDimensionsTextIsSanitized() {
+        // Image dimensions are attacker-controlled only in the sense that
+        // they flow through the same clip-derived path; sanitizing them is
+        // cheap and keeps the invariant uniform across payload kinds. This
+        // just checks the normal case still renders correctly.
+        let summaries = [summary(kind: .image, title: "shot", source: "Preview", secondsAgo: 30, width: 800, height: 600)]
+        let m = PickerModel(summaries: summaries, mode: .paste, now: now, calendar: calendar)
+        let frame = FrameRenderer.render(m, size: TerminalSize(cols: 100, rows: 30), now: now, calendar: calendar, noColor: true)
+        let plain = FrameRenderer.plain(frame)
+        XCTAssertTrue(plain.contains("Image 800×600"))
+    }
+
+    // MARK: - listHeight(for:)
+
+    func testListHeightMatchesActualRenderedListRows() {
+        let sizes = [TerminalSize(cols: 100, rows: 30), TerminalSize(cols: 60, rows: 10), TerminalSize(cols: 30, rows: 5)]
+        var summaries: [ClipSummary] = []
+        for i in 0..<30 {
+            summaries.append(summary(title: "clip \(i)", source: "App", secondsAgo: TimeInterval(30 - i)))
+        }
+        let m = PickerModel(summaries: summaries, mode: .paste, now: now, calendar: calendar)
+
+        for size in sizes {
+            let expected = FrameRenderer.listHeight(for: size)
+            let frame = FrameRenderer.render(m, size: size, now: now, calendar: calendar, noColor: true)
+            let plain = FrameRenderer.plain(frame)
+            let lines = plain.components(separatedBy: "\r\n")
+
+            if size.rows < 8 || size.cols < 40 {
+                XCTAssertEqual(expected, 0)
+                continue
+            }
+
+            // Total rendered rows minus the fixed rows: row1, row2, blank
+            // separator, blank-before-footer, footer (5), and the preview
+            // box (6) when shown, leaves exactly the list rows.
+            let showPreview = size.rows >= 20
+            let fixedRows = 5 + (showPreview ? 6 : 0)
+            XCTAssertEqual(lines.count - fixedRows, expected, "size \(size)")
+        }
+    }
+
     // MARK: - Too small
 
     func testTooSmallSize() {

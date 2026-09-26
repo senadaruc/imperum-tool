@@ -237,7 +237,7 @@ final class PickerModelTests: XCTestCase {
         _ = m.reduce(.down, listHeight: 10, now: now, calendar: calendar) // select b
         XCTAssertEqual(m.selected?.id, b.id)
 
-        m.replace(summaries: [a, c], now: now, calendar: calendar) // b deleted
+        m.replace(summaries: [a, c], listHeight: 10, now: now, calendar: calendar) // b deleted
         XCTAssertEqual(m.selected?.id, c.id)
     }
 
@@ -248,8 +248,49 @@ final class PickerModelTests: XCTestCase {
         _ = m.reduce(.down, listHeight: 10, now: now, calendar: calendar) // select b
         XCTAssertEqual(m.selected?.id, b.id)
 
-        m.replace(summaries: [a], now: now, calendar: calendar) // b deleted
+        m.replace(summaries: [a], listHeight: 10, now: now, calendar: calendar) // b deleted
         XCTAssertEqual(m.selected?.id, a.id)
+    }
+
+    func testReplaceKeepsSelectionInsideVisibleWindow() {
+        // 20 clips, listHeight 5, selection scrolled down to index 15;
+        // replacing with the same list must keep the selection inside the
+        // window without needing a synthetic key press afterwards.
+        let summaries = manySummaries(20)
+        var m = makeModel(summaries)
+        for _ in 0..<15 {
+            _ = m.reduce(.down, listHeight: 5, now: now, calendar: calendar)
+        }
+        XCTAssertEqual(m.state.selectedIndex, 15)
+        let scrollAfterReduce = m.scrollOffset
+
+        m.replace(summaries: summaries, listHeight: 5, now: now, calendar: calendar)
+
+        XCTAssertEqual(m.state.selectedIndex, 15)
+        XCTAssertEqual(m.scrollOffset, scrollAfterReduce)
+        // The selected row must fall within [scrollOffset, scrollOffset + listHeight).
+        XCTAssertGreaterThanOrEqual(m.state.selectedIndex, m.scrollOffset)
+        XCTAssertLessThan(m.state.selectedIndex - m.scrollOffset, 5)
+    }
+
+    func testReplaceAfterDeletingSelectedClipClampsAndStaysVisible() {
+        // Deleting the last clip (so the id-based lookup fails and the
+        // selectedIndex itself is now out of range) forces a real clamp,
+        // and the resulting selection must stay inside the scroll window.
+        let summaries = manySummaries(20)
+        var m = makeModel(summaries)
+        for _ in 0..<19 {
+            _ = m.reduce(.down, listHeight: 5, now: now, calendar: calendar)
+        }
+        XCTAssertEqual(m.state.selectedIndex, 19)
+        let deletedID = m.selected!.id
+        let remaining = summaries.filter { $0.id != deletedID } // 19 left, last index now 18
+
+        m.replace(summaries: remaining, listHeight: 5, now: now, calendar: calendar)
+
+        XCTAssertEqual(m.state.selectedIndex, 18) // clamped to the new last index
+        XCTAssertLessThanOrEqual(m.scrollOffset, m.state.selectedIndex)
+        XCTAssertLessThan(m.state.selectedIndex - m.scrollOffset, 5)
     }
 
     // MARK: - Status

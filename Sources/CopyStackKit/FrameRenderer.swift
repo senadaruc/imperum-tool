@@ -36,10 +36,8 @@ public enum FrameRenderer {
         lines.append(row2(m, cols: cols, noColor: noColor))
         lines.append("") // row 3: blank separator
 
-        let contentZoneHeight = size.rows - 5
+        let listRows = listHeight(for: size)
         let showPreview = size.rows >= previewThresholdRows
-        let previewRows = showPreview ? previewRowCount : 0
-        let listRows = max(0, contentZoneHeight - previewRows)
 
         lines.append(contentsOf: listLines(m, width: cols, listRows: listRows, now: now, calendar: calendar, noColor: noColor))
 
@@ -52,6 +50,16 @@ public enum FrameRenderer {
 
         let body = lines.map { $0 + "\u{1b}[K" }.joined(separator: "\r\n")
         return "\u{1b}[H" + body
+    }
+
+    /// Rows available for section headers + clip rows at `size`: the list
+    /// zone (rows 4…rows-2), minus the 6 rows reserved for the preview box
+    /// once `size.rows >= 20`; 0 when the frame is too small to render.
+    public static func listHeight(for size: TerminalSize) -> Int {
+        guard size.rows >= minRows, size.cols >= minCols else { return 0 }
+        let contentZoneHeight = size.rows - 5
+        let previewRows = size.rows >= previewThresholdRows ? previewRowCount : 0
+        return max(0, contentZoneHeight - previewRows)
     }
 
     /// Same frame with every ANSI escape sequence stripped.
@@ -110,11 +118,6 @@ public enum FrameRenderer {
 
     // MARK: - List rows
 
-    private enum RenderItem {
-        case header(String)
-        case row(Clip, flatIndex: Int)
-    }
-
     private static func listLines(
         _ m: PickerModel, width: Int, listRows: Int, now: Date, calendar: Calendar, noColor: Bool
     ) -> [String] {
@@ -126,27 +129,9 @@ public enum FrameRenderer {
             return lines
         }
 
-        var items: [RenderItem] = []
-        var flatIndex = 0
-        for section in m.sections {
-            items.append(.header(section.title))
-            for clip in section.clips {
-                items.append(.row(clip, flatIndex: flatIndex))
-                flatIndex += 1
-            }
-        }
-
-        var startLine = 0
-        for (i, item) in items.enumerated() {
-            if case .row(_, let idx) = item, idx == m.scrollOffset {
-                if i > 0, case .header = items[i - 1] {
-                    startLine = i - 1
-                } else {
-                    startLine = i
-                }
-                break
-            }
-        }
+        let items = PickerLineLayout.items(m.sections)
+        let lineForFlat = PickerLineLayout.lineForFlatIndex(items)
+        let startLine = PickerLineLayout.startLine(for: m.scrollOffset, items: items, lineForFlat: lineForFlat)
 
         var lines: [String] = []
         var i = startLine
@@ -155,7 +140,8 @@ public enum FrameRenderer {
             case .header(let title):
                 let text = DisplayWidth.truncate(title, to: width)
                 lines.append(noColor ? text : "\u{1b}[2m\(text)\u{1b}[0m")
-            case .row(let clip, let idx):
+            case .row(let idx):
+                let clip = m.flat[idx]
                 lines.append(clipRow(
                     clip, selected: idx == m.state.selectedIndex, width: width, now: now, noColor: noColor
                 ))
@@ -171,7 +157,8 @@ public enum FrameRenderer {
         let pinPlain = clip.isPinned ? "★ " : "  "
         let glyphStr = glyph(for: clip.kind)
         let prefixPlain = markerPlain + pinPlain + glyphStr + " "
-        let right = "\(clip.sourceAppName) · \(ageString(clip.capturedAt, now: now))"
+        let source = Sanitize.line(clip.sourceAppName)
+        let right = "\(source) · \(ageString(clip.capturedAt, now: now))"
         let rightWidth = DisplayWidth.of(right)
         let titleBudget = max(0, width - DisplayWidth.of(prefixPlain) - rightWidth - 1)
         let title = DisplayWidth.truncate(Sanitize.line(clip.title), to: titleBudget)
@@ -230,9 +217,9 @@ public enum FrameRenderer {
         case .text(let s):
             return Sanitize.lines(s, max: 4).map { DisplayWidth.truncate($0, to: width) }
         case .fileURLs(let urls):
-            return urls.map { $0.lastPathComponent }.prefix(4).map { DisplayWidth.truncate($0, to: width) }
+            return urls.map { Sanitize.line($0.lastPathComponent) }.prefix(4).map { DisplayWidth.truncate($0, to: width) }
         case .blob(_, _, let w, let h):
-            return [DisplayWidth.truncate("Image \(w)×\(h)", to: width)]
+            return [DisplayWidth.truncate(Sanitize.line("Image \(w)×\(h)"), to: width)]
         }
     }
 

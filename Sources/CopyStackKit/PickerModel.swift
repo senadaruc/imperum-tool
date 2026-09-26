@@ -1,6 +1,51 @@
 import Foundation
 import ImperumCore
 
+/// One row of the rendered clip list, counting section headers as rows.
+/// Shared between `PickerModel` (to compute scroll windows) and
+/// `FrameRenderer` (to actually draw them) so the two can never diverge on
+/// what "row N" means.
+enum PickerLineItem: Equatable {
+    case header(String)
+    case row(flatIndex: Int)
+}
+
+enum PickerLineLayout {
+    /// Flattens `sections` into header/row line items, in display order.
+    static func items(_ sections: [ClipSection]) -> [PickerLineItem] {
+        var items: [PickerLineItem] = []
+        var flatIndex = 0
+        for section in sections {
+            items.append(.header(section.title))
+            for _ in section.clips {
+                items.append(.row(flatIndex: flatIndex))
+                flatIndex += 1
+            }
+        }
+        return items
+    }
+
+    /// Maps each row's flat clip index to its line index within `items`.
+    static func lineForFlatIndex(_ items: [PickerLineItem]) -> [Int: Int] {
+        var map: [Int: Int] = [:]
+        for (i, item) in items.enumerated() {
+            if case .row(let idx) = item { map[idx] = i }
+        }
+        return map
+    }
+
+    /// The line index a window must start at to show `flatOffset` as its
+    /// first visible clip: right at that clip's own line, or one earlier to
+    /// include its section header when `flatOffset` is that section's first
+    /// clip (a header scrolls away with its section once you're past its
+    /// first row).
+    static func startLine(for flatOffset: Int, items: [PickerLineItem], lineForFlat: [Int: Int]) -> Int {
+        guard let line = lineForFlat[flatOffset] else { return 0 }
+        if line > 0, case .header = items[line - 1] { return line - 1 }
+        return line
+    }
+}
+
 /// Pure state model for the copystack terminal picker: turns `Key` events
 /// (from `KeyParser`) into state transitions and `Effect`s the tty loop
 /// (Task 8) must act on. No terminal I/O, no AppKit — fully testable.
@@ -41,10 +86,10 @@ public struct PickerModel: Equatable {
     }
 
     /// Keeps the selection on the same clip id when it still exists in the
-    /// new list, else clamps it. Does not know the current list height, so
-    /// it only clamps `scrollOffset` into the valid flat-index range; the
-    /// next `reduce` call re-derives a precise window.
-    public mutating func replace(summaries: [ClipSummary], now: Date, calendar: Calendar) {
+    /// new list, else clamps it, then re-runs the same scroll adjustment
+    /// `reduce` uses so a render immediately after `replace` — with no
+    /// synthetic key in between — is already correct.
+    public mutating func replace(summaries: [ClipSummary], listHeight: Int, now: Date, calendar: Calendar) {
         let previousSelectedID = selected?.id
         clips = summaries.map { $0.asClip() }
         let visible = state.visible(from: clips, now: now, calendar: calendar)
@@ -55,7 +100,7 @@ public struct PickerModel: Equatable {
         } else {
             state.clampSelection(count: flat.count)
         }
-        scrollOffset = min(max(scrollOffset, 0), max(0, flat.count - 1))
+        adjustScroll(listHeight: listHeight)
     }
 
     public var selected: Clip? {
@@ -126,48 +171,22 @@ public struct PickerModel: Equatable {
         state.clampSelection(count: flat.count)
     }
 
-    private enum LineItem {
-        case header
-        case row(flatIndex: Int)
-    }
-
-    private func lineItems() -> [LineItem] {
-        var items: [LineItem] = []
-        var flatIndex = 0
-        for section in sections {
-            items.append(.header)
-            for _ in section.clips {
-                items.append(.row(flatIndex: flatIndex))
-                flatIndex += 1
-            }
-        }
-        return items
-    }
-
     /// Adjusts `scrollOffset` so the selected row — counting section headers
     /// as rows — stays inside a `listHeight`-row window.
     private mutating func adjustScroll(listHeight: Int) {
         guard listHeight > 0, !flat.isEmpty else { scrollOffset = 0; return }
 
-        let items = lineItems()
-        var lineForFlat: [Int: Int] = [:]
-        for (i, item) in items.enumerated() {
-            if case .row(let idx) = item { lineForFlat[idx] = i }
-        }
-
-        func startLine(for offset: Int) -> Int {
-            guard let line = lineForFlat[offset] else { return 0 }
-            if line > 0, case .header = items[line - 1] { return line - 1 }
-            return line
-        }
+        let items = PickerLineLayout.items(sections)
+        let lineForFlat = PickerLineLayout.lineForFlatIndex(items)
 
         scrollOffset = min(max(scrollOffset, 0), flat.count - 1)
         guard let selectedLine = lineForFlat[state.selectedIndex] else { return }
 
-        if selectedLine < startLine(for: scrollOffset) {
+        if selectedLine < PickerLineLayout.startLine(for: scrollOffset, items: items, lineForFlat: lineForFlat) {
             scrollOffset = state.selectedIndex
         }
-        while selectedLine - startLine(for: scrollOffset) > listHeight - 1, scrollOffset < flat.count - 1 {
+        while selectedLine - PickerLineLayout.startLine(for: scrollOffset, items: items, lineForFlat: lineForFlat) > listHeight - 1,
+              scrollOffset < flat.count - 1 {
             scrollOffset += 1
         }
     }
