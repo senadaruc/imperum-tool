@@ -114,15 +114,19 @@ public struct PickerModel: Equatable {
         status = nil
         switch key {
         case .char(let c):
-            state.setQuery(state.query + String(c))
+            // KeyParser should never emit a control scalar as .char, but the
+            // model must not trust that: run it through Sanitize.line
+            // defensively so a stray control byte can never reach the query
+            // (and, via row 1, the terminal frame) unescaped.
+            state.setQuery(state.query + Sanitize.line(String(c)))
         case .backspace:
             guard !state.query.isEmpty else { return .none }
             state.setQuery(String(state.query.dropLast()))
         case .ctrl("u"):
             state.setQuery("")
         case .paste(let s):
-            let cleaned = String(s.unicodeScalars.filter { $0 != "\n" && $0 != "\r" })
-            state.setQuery(state.query + cleaned)
+            let withoutNewlines = String(s.unicodeScalars.filter { $0 != "\n" && $0 != "\r" })
+            state.setQuery(state.query + Sanitize.line(withoutNewlines))
         case .up, .ctrl("k"):
             state.moveSelection(by: -1, count: flat.count)
         case .down, .ctrl("n"), .ctrl("j"):

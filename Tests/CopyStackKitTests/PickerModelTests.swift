@@ -89,6 +89,23 @@ final class PickerModelTests: XCTestCase {
         XCTAssertEqual(m.state.query, "abcd")
     }
 
+    func testPasteSanitizesEscapeSequences() {
+        var m = makeModel([textSummary("apple")])
+        let effect = m.reduce(.paste("a\u{1b}[31mb"), listHeight: 10, now: now, calendar: calendar)
+        XCTAssertEqual(effect, .redraw)
+        XCTAssertEqual(m.state.query, "a·b")
+        XCTAssertFalse(m.state.query.contains("\u{1b}"))
+    }
+
+    func testCharDefensivelySanitizesControlScalar() {
+        // KeyParser should never emit a control byte as .char, but the model
+        // must not trust that.
+        var m = makeModel([textSummary("apple")])
+        _ = m.reduce(.char(Character(UnicodeScalar(0x1B))), listHeight: 10, now: now, calendar: calendar)
+        XCTAssertEqual(m.state.query, "·")
+        XCTAssertFalse(m.state.query.contains("\u{1b}"))
+    }
+
     // MARK: - Movement
 
     func testUpDownClampAtEdges() {

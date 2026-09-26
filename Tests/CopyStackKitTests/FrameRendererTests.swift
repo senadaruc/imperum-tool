@@ -133,6 +133,33 @@ final class FrameRendererTests: XCTestCase {
         }
     }
 
+    // MARK: - Sanitization of the query (row 1)
+
+    func testRow1SanitizesQueryEscapeSequence() {
+        var m = PickerModel(summaries: [], mode: .paste, now: now, calendar: calendar)
+        _ = m.reduce(.paste("a\u{1b}[31mb"), listHeight: 10, now: now, calendar: calendar)
+
+        let frame = FrameRenderer.render(m, size: TerminalSize(cols: 60, rows: 10), now: now, calendar: calendar, noColor: true)
+        let plain = FrameRenderer.plain(frame)
+        let row1 = plain.components(separatedBy: "\r\n")[0]
+
+        XCTAssertFalse(row1.contains("\u{1b}"))
+        XCTAssertTrue(row1.contains("·"))
+        XCTAssertTrue(row1.hasSuffix("0 clips"))
+    }
+
+    func testRow1TruncatesVeryLongQueryButKeepsCountVisible() {
+        var m = PickerModel(summaries: [], mode: .paste, now: now, calendar: calendar)
+        _ = m.reduce(.paste(String(repeating: "x", count: 500)), listHeight: 10, now: now, calendar: calendar)
+
+        let frame = FrameRenderer.render(m, size: TerminalSize(cols: 60, rows: 10), now: now, calendar: calendar, noColor: true)
+        let plain = FrameRenderer.plain(frame)
+        let row1 = plain.components(separatedBy: "\r\n")[0]
+
+        XCTAssertLessThanOrEqual(DisplayWidth.of(row1), 60)
+        XCTAssertTrue(row1.hasSuffix("0 clips"))
+    }
+
     // MARK: - Sanitization of clip-derived strings
 
     private func fileSummary(name: String, source: String = "Finder", secondsAgo: TimeInterval = 30) -> ClipSummary {

@@ -85,7 +85,10 @@ public enum FrameRenderer {
     // MARK: - Row 1: query + count
 
     private static func row1(_ m: PickerModel, cols: Int) -> String {
-        let left = "› " + m.state.query + "▏"
+        // Defence in depth: PickerModel already sanitizes the query as it's
+        // typed/pasted, but row 1 must never trust that and re-sanitizes
+        // before it ever reaches the terminal frame.
+        let left = "› " + Sanitize.line(m.state.query) + "▏"
         let right = "\(m.flat.count) clips"
         return leftRightPlain(left, right, width: cols)
     }
