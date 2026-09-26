@@ -260,7 +260,15 @@ public final class SocketServer {
         if heldLockFD >= 0 {
             flock(heldLockFD, LOCK_UN)
             close(heldLockFD)
-            unlink(lockFilePath)
+            // Deliberately NOT unlink(lockFilePath): a concurrent start()
+            // could already have open()'d (or even flock()'d) this same
+            // path before our close() above runs, racing an unlink here
+            // against its own flock attempt — removing the file out from
+            // under a lock someone else is about to acquire (or just
+            // acquired) would let two servers believe they each hold the
+            // only lock on the socket path. Leaving the lock file in place
+            // is harmless: it's just an flock() target, never inspected for
+            // existence, and the next start() reopens (or recreates) it.
         }
     }
 
