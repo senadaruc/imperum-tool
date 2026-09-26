@@ -60,15 +60,53 @@ final class ClipCaptureTests: XCTestCase {
         XCTAssertEqual(c.clip.title, "a.mov")
     }
 
+    /// No string at all on the pasteboard (a screenshot, Preview, etc.):
+    /// the image is the only usable content, so it wins.
     func testImageProducesBlobPayloadAndData() {
         let png = Data([0x89, 0x50, 0x4E, 0x47])
-        let pb = FakePasteboard(image: PasteboardImage(data: png, width: 10, height: 20), text: "ignored")
+        let pb = FakePasteboard(image: PasteboardImage(data: png, width: 10, height: 20))
         let c = ClipCapture.capture(from: pb, context: ctx())!
         XCTAssertEqual(c.clip.kind, .image)
         XCTAssertEqual(c.clip.title, "Image 10×20")
         XCTAssertEqual(c.blobData, png)
         guard case .blob(let id, let ut, let w, let h) = c.clip.payload else { return XCTFail() }
         XCTAssertEqual(id, c.clip.id); XCTAssertEqual(ut, "public.png"); XCTAssertEqual(w, 10); XCTAssertEqual(h, 20)
+    }
+
+    /// Word/Pages/Mail put a bitmap rendering of a text selection on the
+    /// pasteboard alongside the text (and RTF); real text content must win.
+    func testTextWithImageRenderingPrefersText() {
+        let pb = FakePasteboard(types: ["public.utf8-plain-text", "public.rtf", "public.tiff"],
+                                image: PasteboardImage(data: Data([1, 2, 3]), width: 748, height: 866),
+                                text: "01 Contents\nExecutive summary")
+        let c = ClipCapture.capture(from: pb, context: ctx())!
+        XCTAssertEqual(c.clip.kind, .text)
+        XCTAssertEqual(c.clip.payload, .text("01 Contents\nExecutive summary"))
+        XCTAssertNil(c.blobData)
+    }
+
+    /// A browser's "Copy Image" puts the image plus its bare URL as the
+    /// string (no rich-text type) — the image should still win there.
+    func testImageWithOnlyItsURLStaysImage() {
+        let png = Data([1, 2, 3])
+        let pb = FakePasteboard(types: ["public.tiff", "public.utf8-plain-text"],
+                                image: PasteboardImage(data: png, width: 5, height: 5),
+                                text: "https://example.com/a.png")
+        let c = ClipCapture.capture(from: pb, context: ctx())!
+        XCTAssertEqual(c.clip.kind, .image)
+        XCTAssertEqual(c.blobData, png)
+    }
+
+    /// A bare URL that DOES have a rich-text type alongside it is real text
+    /// content (e.g. a link copied from a document), not a browser image
+    /// export — text wins even though it classifies as .link.
+    func testLinkTextWithRTFPrefersText() {
+        let pb = FakePasteboard(types: ["public.utf8-plain-text", "public.rtf", "public.tiff"],
+                                image: PasteboardImage(data: Data([1, 2, 3]), width: 5, height: 5),
+                                text: "https://example.com")
+        let c = ClipCapture.capture(from: pb, context: ctx())!
+        XCTAssertEqual(c.clip.kind, .link)
+        XCTAssertNil(c.blobData)
     }
 
     func testSameImageBytesProduceSameIdDifferentBytesDiffer() {

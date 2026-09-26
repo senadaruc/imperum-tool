@@ -88,7 +88,21 @@ public enum ClipCapture {
                             bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     }
 
-    /// Richest representation first: files → image → colour → string.
+    /// Pasteboard types that mean "this string is real rich-text content",
+    /// not just a browser image export's incidental URL string.
+    private static let richTextTypes: Set<String> = ["public.rtf", "com.apple.flat-rtfd"]
+
+    /// Richest representation first: files → text-vs-image → colour → string.
+    ///
+    /// Word, Pages, Mail and browsers (on a text selection) put a bitmap
+    /// rendering of the selection on the pasteboard alongside the text (and
+    /// often RTF); reading the image before the string used to capture that
+    /// rendering as an `.image` clip instead of the text. The string is now
+    /// read first and wins over any image UNLESS it's a bare URL with no
+    /// rich-text type present — that shape (string + image, no RTF) is how
+    /// browsers represent "Copy Image", where the string is just the
+    /// image's URL, not real text content. With no string at all
+    /// (screenshots, Preview), the image still wins as before.
     public static func capture(from pb: PasteboardReading, context: CaptureContext, now: Date = Date()) -> CapturedClip? {
         if CaptureVeto.reason(types: pb.types, changeCount: pb.changeCount, context: context) != nil { return nil }
         let src = (name: context.frontAppName, bundle: context.frontBundleID)
@@ -99,7 +113,14 @@ public enum ClipCapture {
             return CapturedClip(clip: Clip(kind: kind, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
                                            title: ClipClassifier.title(forFiles: files), payload: .fileURLs(files)), blobData: nil)
         }
-        if let img = pb.imagePNG() {
+
+        let text = pb.string().map(truncatedIfNeeded)
+        let textKind = text.flatMap(ClipClassifier.classifyText)
+        let hasRichText = pb.types.contains(where: richTextTypes.contains)
+        let isBareURLImageExport = textKind == .link && !hasRichText
+        let textWinsOverImage = textKind != nil && !isBareURLImageExport
+
+        if !textWinsOverImage, let img = pb.imagePNG() {
             let id = contentID(img.data)
             let clip = Clip(id: id, kind: .image, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
                             title: ClipClassifier.title(imageWidth: img.width, height: img.height),
@@ -110,9 +131,7 @@ public enum ClipCapture {
             return CapturedClip(clip: Clip(kind: .color, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
                                            title: norm, payload: .text(norm)), blobData: nil)
         }
-        guard let rawText = pb.string() else { return nil }
-        let text = truncatedIfNeeded(rawText)
-        guard let kind = ClipClassifier.classifyText(text) else { return nil }
+        guard let text, let kind = textKind else { return nil }
         if kind == .color {
             // Some functional colour strings (hsl/hsla, space-separated rgb)
             // match the classifier's colour regex but aren't normalisable to
