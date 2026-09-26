@@ -30,8 +30,11 @@ protocol TerminalHost {
     var app: TerminalApp { get }
     /// Opens a new window running the picker. Calls `completion` on main.
     func open(session: String, copystackPath: String, completion: @escaping (Result<HostHandle, HostError>) -> Void)
-    /// Best effort; a no-op for hosts opened as a brand-new instance whose
-    /// process simply exits when the picker does.
+    /// Best effort. For a brand-new instance (kitty, Ghostty's `openApp`
+    /// fallback) this terminates that instance outright — acceptable because
+    /// `open` always launches those with `createsNewApplicationInstance =
+    /// true` specifically so this process only ever hosts the one picker
+    /// window and nothing else the user has open in that app.
     func close(_ handle: HostHandle)
     /// Finds the window `open` created by its title (polling up to 1.5s
     /// every 30ms, since AX may not see it the instant the host reports
@@ -40,9 +43,11 @@ protocol TerminalHost {
 }
 
 enum TerminalHosts {
-    /// The last `HostError` seen per app, for Settings to surface (e.g.
-    /// "Ghostty: Automation access denied").
-    static var lastFailure: [TerminalApp: HostError] = [:]
+    /// The last real `HostError` seen per app (e.g. `.automationDenied`), for
+    /// Settings to surface ("Ghostty: Automation access denied"). Only ever
+    /// read/written on main (every `TerminalHost` completion callback runs on
+    /// main; see `GenericTerminalHost`).
+    @MainActor static var lastFailure: [TerminalApp: HostError] = [:]
 
     static func host(for app: TerminalApp, runningApp: NSRunningApplication) -> TerminalHost? {
         guard app.supportsPicker else { return nil }
@@ -56,12 +61,20 @@ enum TerminalHosts {
 private final class GenericTerminalHost: TerminalHost {
     let app: TerminalApp
     private let runningApp: NSRunningApplication
-    private let appleScriptQueue = DispatchQueue(label: "com.imperum.terminalHosts.appleScript")
+
+    /// `NSAppleScript` blocks, so every AppleScript call — across every host
+    /// instance — runs off this one shared serial queue, never main.
+    private static let appleScriptQueue = DispatchQueue(label: "com.imperum.terminalHosts.appleScript")
 
     init(app: TerminalApp, runningApp: NSRunningApplication) {
         self.app = app
         self.runningApp = runningApp
     }
+
+    /// The bundle id of the *actual* running instance, not just one of
+    /// `app`'s known prefixes — matters for cmux, whose cmux-imperum debug
+    /// build has a different id than the regular build.
+    private var bundleID: String { runningApp.bundleIdentifier ?? app.bundleIDPrefixes[0] }
 
     // MARK: open
 
@@ -70,37 +83,54 @@ private final class GenericTerminalHost: TerminalHost {
         let bundleURL = runningApp.bundleURL?.path ?? ""
         let cmuxCLI = app == .cmux ? cmuxCLIPath() : nil
         let launches = HostCommand.launch(for: app, copystackPath: copystackPath, session: session,
-                                           bundleURL: bundleURL, cmuxCLI: cmuxCLI)
-        attempt(launches: launches, index: 0, completion: completion)
+                                           bundleURL: bundleURL, bundleID: bundleID, cmuxCLI: cmuxCLI)
+        attempt(launches: launches, index: 0, lastError: nil, completion: completion)
     }
 
-    private func attempt(launches: [HostCommand.Launch], index: Int,
+    /// Tries `launches[index]`; on failure, tries the next one, remembering
+    /// the most recent real error so that if every strategy fails, callers
+    /// (and `TerminalHosts.lastFailure`) see e.g. `.automationDenied` rather
+    /// than a generic "nothing worked" message. `self` is captured strongly
+    /// throughout: nothing else retains a `GenericTerminalHost` while an
+    /// `open` is in flight (the caller only gets one back via `completion`),
+    /// so a `[weak self]` here would let it deallocate mid-launch and drop
+    /// the completion (and, in `position`, stop polling after one attempt).
+    private func attempt(launches: [HostCommand.Launch], index: Int, lastError: HostError?,
                           completion: @escaping (Result<HostHandle, HostError>) -> Void) {
         guard index < launches.count else {
-            let err = HostError.launchFailed("no launch strategy succeeded for \(app.displayName)")
-            TerminalHosts.lastFailure[app] = err
+            let err = lastError ?? .launchFailed("no launch strategy configured for \(app.displayName)")
+            recordFailure(err)
             return completion(.failure(err))
         }
-        run(launches[index].kind) { [weak self] result in
-            guard let self else { return }
+        run(launches[index].kind) { result in
             switch result {
             case .success(let handle):
-                TerminalHosts.lastFailure[self.app] = nil
+                self.recordFailure(nil)
                 completion(.success(handle))
             case .failure(let err):
-                TerminalHosts.lastFailure[self.app] = err
-                self.attempt(launches: launches, index: index + 1, completion: completion)
+                self.recordFailure(err)
+                self.attempt(launches: launches, index: index + 1, lastError: err, completion: completion)
             }
+        }
+    }
+
+    /// Always hops to main itself (rather than assuming the caller already
+    /// is), so it's safe to call from anywhere, including the edge case in
+    /// `attempt` where `launches` was empty from the start.
+    private func recordFailure(_ err: HostError?) {
+        let app = app
+        DispatchQueue.main.async {
+            TerminalHosts.lastFailure[app] = err
         }
     }
 
     private func run(_ kind: HostCommand.Launch.Kind, completion: @escaping (Result<HostHandle, HostError>) -> Void) {
         switch kind {
         case .appleScript(let source):
-            runAppleScript(source) { [runningApp, app] result in
+            runAppleScript(source) { result in
                 switch result {
                 case .success(let windowID):
-                    completion(.success(HostHandle(app: app, hostPID: runningApp.processIdentifier, windowID: windowID, newInstance: nil)))
+                    completion(.success(HostHandle(app: self.app, hostPID: self.runningApp.processIdentifier, windowID: windowID, newInstance: nil)))
                 case .failure(let err):
                     completion(.failure(err))
                 }
@@ -111,12 +141,12 @@ private final class GenericTerminalHost: TerminalHost {
             config.createsNewApplicationInstance = true
             config.activates = true
             config.arguments = arguments
-            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: bundleURL), configuration: config) { [app] newInstance, error in
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: bundleURL), configuration: config) { newInstance, error in
                 DispatchQueue.main.async {
                     if let error {
                         completion(.failure(.launchFailed(error.localizedDescription)))
                     } else if let newInstance {
-                        completion(.success(HostHandle(app: app, hostPID: newInstance.processIdentifier, windowID: nil, newInstance: newInstance)))
+                        completion(.success(HostHandle(app: self.app, hostPID: newInstance.processIdentifier, windowID: nil, newInstance: newInstance)))
                     } else {
                         completion(.failure(.launchFailed("openApplication returned no running instance")))
                     }
@@ -130,10 +160,9 @@ private final class GenericTerminalHost: TerminalHost {
 
     // MARK: AppleScript
 
-    /// `NSAppleScript` blocks, so it always runs off a private serial queue;
     /// `completion` is called back on main.
     private func runAppleScript(_ source: String, completion: @escaping (Result<String?, HostError>) -> Void) {
-        appleScriptQueue.async {
+        Self.appleScriptQueue.async {
             guard let script = NSAppleScript(source: source) else {
                 return DispatchQueue.main.async { completion(.failure(.launchFailed("could not parse AppleScript"))) }
             }
@@ -176,22 +205,25 @@ private final class GenericTerminalHost: TerminalHost {
             return completion(.failure(.launchFailed("empty cmux argv")))
         }
         let env = cmuxEnvironment()
-        let app = app
-        let runningApp = runningApp
         DispatchQueue.global(qos: .userInitiated).async {
-            guard let newWindowOutput = Self.runProcess(executable, newWindowArgs, env: env),
+            let newWindowResult = Self.runProcess(executable, newWindowArgs, env: env)
+            guard case .success(let newWindowOutput) = newWindowResult,
                   let windowID = Self.parseCmuxRef(newWindowOutput), !windowID.isEmpty else {
-                return DispatchQueue.main.async { completion(.failure(.launchFailed("cmux new-window failed"))) }
+                let err: HostError = {
+                    if case .failure(let e) = newWindowResult { return e }
+                    return .launchFailed("cmux new-window returned no window id")
+                }()
+                return DispatchQueue.main.async { completion(.failure(err)) }
             }
             for remaining in argv.dropFirst() {
                 let substituted = remaining.map { $0.replacingOccurrences(of: "{WINDOW}", with: windowID) }
-                if Self.runProcess(executable, substituted, env: env) == nil {
+                if case .failure(let sendErr) = Self.runProcess(executable, substituted, env: env) {
                     _ = Self.runProcess(executable, ["close-window", "--window", windowID], env: env)
-                    return DispatchQueue.main.async { completion(.failure(.launchFailed("cmux send failed"))) }
+                    return DispatchQueue.main.async { completion(.failure(sendErr)) }
                 }
             }
             DispatchQueue.main.async {
-                completion(.success(HostHandle(app: app, hostPID: runningApp.processIdentifier, windowID: windowID, newInstance: nil)))
+                completion(.success(HostHandle(app: self.app, hostPID: self.runningApp.processIdentifier, windowID: windowID, newInstance: nil)))
             }
         }
     }
@@ -209,6 +241,11 @@ private final class GenericTerminalHost: TerminalHost {
 
     private func cmuxEnvironment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
+        // Never trust an inherited CMUX_SOCKET_PATH (e.g. if Imperum Tool
+        // itself were launched from inside a cmux shell) — only the
+        // cmux-imperum debug build gets one, set explicitly below, so a
+        // launch can't be silently redirected to some other socket.
+        env.removeValue(forKey: "CMUX_SOCKET_PATH")
         let password = ClipboardSettingsStore(defaults: .standard).settings.cmuxSocketPassword
         if !password.isEmpty { env["CMUX_SOCKET_PASSWORD"] = password }
         if runningApp.bundleIdentifier?.hasSuffix(".debug.imperum") == true,
@@ -229,8 +266,11 @@ private final class GenericTerminalHost: TerminalHost {
     }
 
     /// Runs `executable argv` synchronously (this always happens on a
-    /// background queue); returns stdout on exit code 0, nil otherwise.
-    private static func runProcess(_ executable: String, _ argv: [String], env: [String: String]) -> String? {
+    /// background queue) with a hard timeout, since a hung or unresponsive
+    /// CLI must not hang `open`/`close` forever. Terminates the process and
+    /// returns `.timeout` if it hasn't exited within `timeout` seconds.
+    private static func runProcess(_ executable: String, _ argv: [String], env: [String: String],
+                                    timeout: TimeInterval = 3.0) -> Result<String, HostError> {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: executable)
         p.arguments = argv
@@ -238,11 +278,41 @@ private final class GenericTerminalHost: TerminalHost {
         let out = Pipe()
         p.standardOutput = out
         p.standardError = Pipe()
-        do { try p.run() } catch { return nil }
+        do { try p.run() } catch {
+            return .failure(.launchFailed("failed to start \(executable): \(error.localizedDescription)"))
+        }
+
+        let timedOut = TimeoutFlag()
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + timeout)
+        timer.setEventHandler {
+            if p.isRunning {
+                timedOut.set()
+                p.terminate()
+            }
+        }
+        timer.resume()
+
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
-        guard p.terminationStatus == 0 else { return nil }
-        return String(data: data, encoding: .utf8)
+        timer.cancel()
+
+        if timedOut.value {
+            return .failure(.timeout)
+        }
+        guard p.terminationStatus == 0 else {
+            return .failure(.launchFailed("\(executable) \(argv.first ?? "") exited with status \(p.terminationStatus)"))
+        }
+        return .success(String(data: data, encoding: .utf8) ?? "")
+    }
+
+    /// A tiny lock-protected flag `runProcess`'s timer (background queue) and
+    /// caller (also a background queue, but a different one) both touch.
+    private final class TimeoutFlag {
+        private let lock = NSLock()
+        private var _value = false
+        var value: Bool { lock.lock(); defer { lock.unlock() }; return _value }
+        func set() { lock.lock(); _value = true; lock.unlock() }
     }
 
     // MARK: close
@@ -254,9 +324,8 @@ private final class GenericTerminalHost: TerminalHost {
         }
         guard let windowID = handle.windowID else { return }
         // cmux's windows don't understand the standard "close" Apple event
-        // HostCommand.closeScript's generic template sends (confirmed
-        // against a real install: "doesn't understand the close message"),
-        // so close it through the CLI's own close-window command instead.
+        // (HostCommand.closeScript returns nil for cmux for exactly this
+        // reason), so close it through the CLI's own close-window instead.
         if app == .cmux, let cli = cmuxCLIPath() {
             let env = cmuxEnvironment()
             DispatchQueue.global(qos: .utility).async {
@@ -264,7 +333,7 @@ private final class GenericTerminalHost: TerminalHost {
             }
             return
         }
-        guard let script = HostCommand.closeScript(for: app, windowID: windowID) else { return }
+        guard let script = HostCommand.closeScript(for: app, bundleID: bundleID, windowID: windowID) else { return }
         runAppleScript(script) { _ in }
     }
 
@@ -291,8 +360,8 @@ private final class GenericTerminalHost: TerminalHost {
             return
         }
         guard Date() < deadline else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-            self?.poll(handle: handle, windowTitle: windowTitle, deadline: deadline)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+            self.poll(handle: handle, windowTitle: windowTitle, deadline: deadline)
         }
     }
 

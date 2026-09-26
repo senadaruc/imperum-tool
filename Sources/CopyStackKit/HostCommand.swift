@@ -18,7 +18,20 @@ public enum HostCommand {
 
     /// The picker command line every host runs; the app path is single-quoted.
     public static func pickerCommand(copystackPath: String, session: String) -> String {
-        "exec \(ShellQuote.single(copystackPath)) --pick --session \(session)"
+        "exec " + pickerArgv(copystackPath: copystackPath, session: session)
+    }
+
+    /// Same as `pickerCommand` but without the leading `exec` — needed for
+    /// Ghostty, which (per its `Ghostty.sdef`) already runs a surface
+    /// configuration's `command` as `bash -c "exec -l <command>"` itself.
+    /// Giving it `pickerCommand`'s own leading `exec` on top makes bash's
+    /// `exec -l` builtin treat the word "exec" as the program to look up on
+    /// $PATH (there is no such external binary), so the surface's command
+    /// fails immediately and the window/tab closes right away (confirmed
+    /// live: `command of cfg` set to `pickerCommand` closed within ~1s, the
+    /// same string without the leading `exec` ran and stayed open).
+    private static func pickerArgv(copystackPath: String, session: String) -> String {
+        "\(ShellQuote.single(copystackPath)) --pick --session \(session)"
     }
 
     /// The picker sets this as its window title via OSC 2, so AX lookup by
@@ -28,6 +41,13 @@ public enum HostCommand {
     }
 
     /// Launches to try, in order; the first that succeeds wins.
+    ///
+    /// - Parameter bundleID: the *actual* bundle id of the running instance
+    ///   (e.g. `runningApp.bundleIdentifier`), used verbatim in `tell
+    ///   application id "..."`. This matters for `cmux`, which has two
+    ///   installable variants with different ids (`com.cmuxterm.app` and the
+    ///   cmux-imperum debug build's `com.cmuxterm.app.debug.imperum`); using
+    ///   the wrong one would target a different (or non-running) app.
     public static func launch(
         for app: TerminalApp,
         copystackPath: String,
@@ -35,16 +55,23 @@ public enum HostCommand {
         cols: Int = 100,
         rows: Int = 30,
         bundleURL: String,
+        bundleID: String,
         cmuxCLI: String? = nil
     ) -> [Launch] {
         let command = pickerCommand(copystackPath: copystackPath, session: session)
         switch app {
         case .ghostty:
-            let bundleID = TerminalApp.ghostty.bundleIDPrefixes[0]
+            // No "shell:" prefix — Ghostty.sdef's "command" property is "the
+            // command to execute instead of the configured shell", a plain
+            // command line, not a DSL string; a literal "shell:" prefix made
+            // Ghostty try (and fail) to look up a program named
+            // "shell:exec" (confirmed live). And `pickerArgv`, not
+            // `pickerCommand`, per the comment on `pickerArgv`.
+            let ghosttyCommand = pickerArgv(copystackPath: copystackPath, session: session)
             let ascript = """
             tell application id "\(bundleID)"
                 set cfg to new surface configuration
-                set command of cfg to "shell:\(escapeForAppleScriptString(command))"
+                set command of cfg to "\(escapeForAppleScriptString(ghosttyCommand))"
                 set wait after command of cfg to false
                 set w to new window with configuration cfg
                 return id of w
@@ -62,7 +89,6 @@ public enum HostCommand {
             ]
 
         case .cmux:
-            let bundleID = TerminalApp.cmux.bundleIDPrefixes[0]
             var launches: [Launch] = []
             if let cmuxCLI {
                 launches.append(Launch(kind: .cli(executable: cmuxCLI, argv: [
@@ -81,10 +107,19 @@ public enum HostCommand {
             return launches
 
         case .iterm2:
-            let bundleID = TerminalApp.iterm2.bundleIDPrefixes[0]
+            // iTerm2's "command" property execs the string directly, with no
+            // shell in between — `exec` is a shell builtin, so without a
+            // shell to run it in, the command fails immediately and the
+            // window closes within ~1s (confirmed live). Wrapping in
+            // `/bin/sh -c '<command>'` gives it a shell to run `exec` in;
+            // ShellQuote.single handles the command's own embedded single
+            // quotes (from pickerCommand's ShellQuote.single(copystackPath)),
+            // and the whole wrapped string then gets the usual AppleScript
+            // string-literal escaping on top (applied once, not twice).
+            let shellCommand = "/bin/sh -c " + ShellQuote.single(command)
             let ascript = """
             tell application id "\(bundleID)"
-                set w to create window with default profile command "\(escapeForAppleScriptString(command))"
+                set w to create window with default profile command "\(escapeForAppleScriptString(shellCommand))"
                 tell current session of w
                     set columns to \(cols)
                     set rows to \(rows)
@@ -107,7 +142,6 @@ public enum HostCommand {
             return [Launch(kind: .openApp(bundleURL: bundleURL, arguments: args))]
 
         case .terminal:
-            let bundleID = TerminalApp.terminal.bundleIDPrefixes[0]
             let ascript = """
             tell application id "\(bundleID)"
                 set t to do script "\(escapeForAppleScriptString(command))"
@@ -125,13 +159,23 @@ public enum HostCommand {
 
     /// AppleScript to close a window by id, where the host supports it.
     /// `kitty`/`warp` return nil (kitty has no scriptable close-by-id; the
-    /// instance simply exits when the picker does).
-    public static func closeScript(for app: TerminalApp, windowID: String) -> String? {
+    /// instance simply exits when the picker does). `cmux` also returns nil:
+    /// its windows reject the standard AppleScript "close" Apple event this
+    /// template sends (confirmed live: `"doesn't understand the "close"
+    /// message"`, error -1708) — `TerminalHosts` closes cmux windows through
+    /// the CLI's own `close-window` command instead.
+    ///
+    /// Ghostty's windows reject that same standard "close" event too (same
+    /// -1708 error, confirmed live) — but unlike cmux, Ghostty.sdef defines
+    /// its own custom `close window <specifier>` command, confirmed live to
+    /// work, which is what this returns for `.ghostty`.
+    public static func closeScript(for app: TerminalApp, bundleID: String, windowID: String) -> String? {
         switch app {
-        case .kitty, .warp:
+        case .kitty, .warp, .cmux:
             return nil
-        case .ghostty, .iterm2, .terminal, .cmux:
-            let bundleID = app.bundleIDPrefixes[0]
+        case .ghostty:
+            return "tell application id \"\(bundleID)\" to close window (first window whose id is \(windowID))"
+        case .iterm2, .terminal:
             return "tell application id \"\(bundleID)\" to close (first window whose id is \(windowID))"
         }
     }

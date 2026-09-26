@@ -175,7 +175,7 @@ final class ActionRunner {
 
         // AX coordinates: origin top-left of the primary screen, y down.
         let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        let pos = AXWindow.frame(of: window)?.origin ?? .zero
+        let pos = AXWindow.position(of: window) ?? .zero
         let cocoaPoint = CGPoint(x: pos.x + 2, y: primaryH - pos.y - 2)
         let screen = NSScreen.screens.first { $0.frame.contains(cocoaPoint) } ?? NSScreen.main ?? NSScreen.screens[0]
         var target = screen.visibleFrame

@@ -34,6 +34,17 @@ enum AXWindow {
         windows(pid: pid).first { title(of: $0)?.contains(titleContains) == true }
     }
 
+    /// Just the position, independent of whether size can also be read (see
+    /// `frame`, which requires both and is the wrong tool when only the
+    /// position is needed).
+    static func position(of element: AXUIElement) -> CGPoint? {
+        var posRef: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef) == .success, let p = posRef else { return nil }
+        var pos = CGPoint.zero
+        AXValueGetValue(p as! AXValue, .cgPoint, &pos)
+        return pos
+    }
+
     static func frame(of element: AXUIElement) -> CGRect? {
         var posRef: AnyObject?
         var sizeRef: AnyObject?
