@@ -12,6 +12,9 @@ import ImperumCore
 /// except Bluetooth power, which has no public API and uses IOBluetooth's
 /// private preference call.
 final class ActionRunner {
+    /// Set by `ClipboardController` at launch; nil until the clipboard subsystem exists.
+    static var showCopyStack: (() -> Void)?
+
     private var savedMicVolume: Float32?
     private var switcherOpen = false
     private var switcherRelease: DispatchWorkItem?
@@ -30,6 +33,8 @@ final class ActionRunner {
         case .pastePlain: pressKey(9, [.maskAlternate, .maskShift, .maskCommand])
         case .undo: pressKey(6, .maskCommand)
         case .redo: pressKey(6, [.maskShift, .maskCommand])
+        case .showCopyStack:
+            if let show = Self.showCopyStack { show() } else { notConfigured(action) }
         // Media & volume
         case .muteSound: mediaKey(7)
         case .volumeUp: mediaKey(0)

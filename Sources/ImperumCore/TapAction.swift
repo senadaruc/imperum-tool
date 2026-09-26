@@ -28,7 +28,7 @@ public struct TapAction: Codable, Equatable, Hashable {
         case none
         // Screenshots & clipboard
         case screenshotClipboard, screenshotDesktop, screenshotArea
-        case copy, paste, pastePlain, undo, redo
+        case copy, paste, pastePlain, undo, redo, showCopyStack
         // Media & volume
         case muteSound, volumeUp, volumeDown, playPause, nextTrack, previousTrack
         // Input, display & focus
@@ -53,7 +53,7 @@ public struct TapAction: Codable, Equatable, Hashable {
             switch self {
             case .none, .flashlight: return .other
             case .screenshotClipboard, .screenshotDesktop, .screenshotArea,
-                 .copy, .paste, .pastePlain, .undo, .redo: return .screenshotsClipboard
+                 .copy, .paste, .pastePlain, .undo, .redo, .showCopyStack: return .screenshotsClipboard
             case .muteSound, .volumeUp, .volumeDown, .playPause, .nextTrack, .previousTrack: return .mediaVolume
             case .muteMic, .brightnessUp, .brightnessDown, .keyboardBacklightUp, .keyboardBacklightDown, .toggleFocus:
                 return .inputDisplayFocus
@@ -79,6 +79,7 @@ public struct TapAction: Codable, Equatable, Hashable {
             case .pastePlain: return "Paste without formatting"
             case .undo: return "Undo (⌘Z)"
             case .redo: return "Redo (⇧⌘Z)"
+            case .showCopyStack: return "Show Copy Stack"
             case .muteSound: return "Mute / unmute sound"
             case .volumeUp: return "Volume up"
             case .volumeDown: return "Volume down"

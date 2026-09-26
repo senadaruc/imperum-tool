@@ -55,6 +55,14 @@ final class TapActionTests: XCTestCase {
     func testMissingSlotIsNone() {
         XCTAssertEqual(TapMap().action(side: .left, count: 2).kind, .none)
     }
+
+    func testShowCopyStackActionExists() {
+        let k = TapAction.Kind.showCopyStack
+        XCTAssertEqual(k.displayName, "Show Copy Stack")
+        XCTAssertEqual(k.category, .screenshotsClipboard)
+        if case .none = k.parameter {} else { XCTFail("no parameter expected") }
+        XCTAssertTrue(TapAction.Kind.inCategory(.screenshotsClipboard).contains(.showCopyStack))
+    }
 }
 
 final class TapSettingsStoreTests: XCTestCase {
