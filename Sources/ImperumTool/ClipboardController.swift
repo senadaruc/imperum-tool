@@ -1,6 +1,7 @@
 // Sources/ImperumTool/ClipboardController.swift
 import AppKit
 import Combine
+import CopyStackKit
 import ImperumCore
 
 /// Owns the whole clipboard subsystem and reacts to settings live.
@@ -37,6 +38,10 @@ final class ClipboardController {
     private lazy var panel = CopyStackPanel(model: model)
     private lazy var statusItem = ClipboardStatusItem(store: store, settings: settings)
     private var pollTimer: Timer?
+    /// The in-flight terminal-picker session, if any (nil whenever the
+    /// SwiftUI panel is the active UI instead). Set by `openCopyStack`,
+    /// cleared via `PickSession`'s `onFinished`.
+    private var session: PickSession?
     private var saveWork: DispatchWorkItem?
     /// Encoding + sealing the index can take ~200ms once it grows large;
     /// running that on main would stall the event tap's run loop (every
@@ -77,7 +82,7 @@ final class ClipboardController {
         store.onBlobsDropped = { [weak self] ids in self?.archive?.deleteBlobs(ids); self?.blobCache.remove(ids) }
         model.onPaste = { [weak self] clip in self?.paste(clip) }
         model.onClose = { [weak self] in self?.panel.hide() }
-        tap.onOpenPanel = { [weak self] in self?.showPanel(anchor: .mouseScreen) }
+        tap.onOpenPanel = { [weak self] in self?.openCopyStack(anchor: .mouseScreen) }
         statusItem.onShow = { [weak self] in self?.showPanel(anchor: .mainScreen) }
         statusItem.onClear = { [weak self] in self?.confirmClear() }
         statusItem.onSettings = { SettingsTabs.requestedTab = "clipboard"; NSApp.sendAction(#selector(AppController.showSettings), to: nil, from: nil) }
@@ -85,7 +90,19 @@ final class ClipboardController {
             ActionRunner.ensureAccessibility()
             self?.retryTapIfTrusted()
         }
-        ActionRunner.showCopyStack = { [weak self] in self?.showPanel(anchor: .mainScreen) }
+        ActionRunner.showCopyStack = { [weak self] in self?.openCopyStack(anchor: .mainScreen) }
+        copyStackServer.onSessionPaste = { [weak self] sessionID, clip in
+            guard let self, let session = self.session, session.token == sessionID else { return }
+            session.onPasteRequested(clip)
+        }
+        copyStackServer.onConnectionClosed = { [weak self] _, sessionID in
+            guard let self, let session = self.session, let sessionID, session.token == sessionID else { return }
+            session.onClosed()
+        }
+        copyStackServer.onSessionConnected = { [weak self] sessionID in
+            guard let self, let session = self.session, session.token == sessionID else { return }
+            session.onConnected()
+        }
         settings.$settings.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] s in self?.apply(s) }.store(in: &bag)
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.retryTapIfTrusted()
@@ -185,6 +202,40 @@ final class ClipboardController {
         panel.show(anchor: anchor)
     }
 
+    /// The double-tap ⌘V / "Show Copy Stack" trigger: opens the terminal
+    /// picker in the frontmost app when it's a supported terminal and the
+    /// picker is enabled and available, otherwise falls back to the SwiftUI
+    /// panel. Toggle semantics, like the panel: a second trigger while a
+    /// session or the panel is open closes it instead of opening another.
+    func openCopyStack(anchor: CopyStackPanel.Anchor) {
+        guard settings.settings.enabled else { return }
+        if let s = session { s.cancel(); session = nil; return }
+        if panel.isVisible { panel.hide(); return }
+        if settings.settings.terminalPicker,
+           let front = NSWorkspace.shared.frontmostApplication,
+           let app = TerminalApp.detect(bundleID: front.bundleIdentifier), app.supportsPicker,
+           let host = TerminalHosts.host(for: app, runningApp: front),
+           let cli = Bundle.main.url(forAuxiliaryExecutable: "copystack")?.path,
+           copyStackServer.isRunning {
+            startSession(host: host, app: app, origin: front, copystackPath: cli, anchor: anchor)
+        } else {
+            showPanel(anchor: anchor)
+        }
+    }
+
+    private func startSession(host: TerminalHost, app: TerminalApp, origin: NSRunningApplication,
+                               copystackPath: String, anchor: CopyStackPanel.Anchor) {
+        let originPID = origin.processIdentifier
+        let originWindow = AXWindow.focusedWindow(pid: originPID)
+        let newSession = PickSession(
+            originPID: originPID, originWindow: originWindow, host: host, hostApp: app, copystackPath: copystackPath,
+            commitPasted: { [weak self] clip in self?.commitPasted(clip) },
+            onFallback: { [weak self] in self?.showPanel(anchor: anchor) },
+            onFinished: { [weak self] in self?.session = nil })
+        session = newSession
+        newSession.start()
+    }
+
     private func paste(_ clip: Clip) {
         panel.hide()
         if paster.paste(clip) {
@@ -254,6 +305,7 @@ final class ClipboardController {
     }
 
     func willTerminate() {
+        session?.cancel()
         copyStackServer.stop()
         saveWork?.cancel()
         saveQueue.sync {}   // drain a pending background save before deciding what to write last

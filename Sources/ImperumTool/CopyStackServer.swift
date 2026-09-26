@@ -46,6 +46,9 @@ final class CopyStackServer {
     var onSessionPaste: ((SessionID, Clip) -> Void)?
     /// Task 10 uses it for EOF.
     var onConnectionClosed: ((ConnectionID, SessionID?) -> Void)?
+    /// Task 10 uses it to know a picker's `hello{session}` arrived, i.e. the
+    /// picker connected over the socket. Called on main.
+    var onSessionConnected: ((SessionID) -> Void)?
 
     init(store: ClipStore, settings: ClipboardSettingsStore, paster: ClipPaster, commitPasted: @escaping (Clip) -> Void) {
         self.store = store
@@ -119,6 +122,9 @@ final class CopyStackServer {
                 return try? ProtocolCodec.encode(.error(code: code, message: "malformed request"))
             case .success(let request):
                 generation.currentConnection = connection.id
+                if case .hello(let session) = request, let session {
+                    onSessionConnected?(session)
+                }
                 let response = generation.handler.handle(request, connection: connection.id)
                 return try? ProtocolCodec.encode(response)
             }
