@@ -297,4 +297,65 @@ final class HostCommandTests: XCTestCase {
     func testCloseScriptWarpIsNil() {
         XCTAssertNil(HostCommand.closeScript(for: .warp, bundleID: "dev.warp.Warp-Stable", windowID: "1"))
     }
+
+    // MARK: bundleID validation (AppleScript-injection hardening)
+
+    /// `TerminalApp.detect` accepts bundle ids by prefix match, so a running
+    /// app could in principle report an id containing a `"` (or otherwise
+    /// outside the normal reverse-DNS charset); every `tell application id
+    /// "..."` template interpolates it unescaped, so `launch` must refuse to
+    /// build any AppleScript (or openApp/CLI launch, which are also keyed on
+    /// this id) for such an id rather than let it break out of the string.
+    func testLaunchRejectsBundleIDWithDoubleQuote() {
+        let launches = HostCommand.launch(for: .terminal, copystackPath: copystackPath, session: session,
+                                           bundleURL: "/System/Applications/Utilities/Terminal.app",
+                                           bundleID: "com.apple.Terminal\" -- injected")
+        XCTAssertEqual(launches, [])
+    }
+
+    func testLaunchRejectsBundleIDWithDoubleQuoteForEveryHost() {
+        for app in TerminalApp.allCases where app.supportsPicker {
+            let launches = HostCommand.launch(for: app, copystackPath: copystackPath, session: session,
+                                               bundleURL: bundleURL, bundleID: "evil\"id",
+                                               cmuxCLI: app == .cmux ? "/bin/cmux" : nil)
+            XCTAssertEqual(launches, [], "expected no launches for \(app)")
+        }
+    }
+
+    func testLaunchAcceptsOrdinaryBundleID() {
+        let launches = HostCommand.launch(for: .terminal, copystackPath: copystackPath, session: session,
+                                           bundleURL: "/System/Applications/Utilities/Terminal.app",
+                                           bundleID: "com.apple.Terminal")
+        XCTAssertFalse(launches.isEmpty)
+    }
+
+    func testLaunchAcceptsCmuxDebugBundleIDWithDots() {
+        // Real-world id from the doc comment: must still be accepted.
+        let launches = HostCommand.launch(for: .cmux, copystackPath: copystackPath, session: session,
+                                           bundleURL: bundleURL, bundleID: "com.cmuxterm.app.debug.imperum",
+                                           cmuxCLI: nil)
+        XCTAssertFalse(launches.isEmpty)
+    }
+
+    func testCloseScriptNilForBundleIDWithDoubleQuote() {
+        XCTAssertNil(HostCommand.closeScript(for: .iterm2, bundleID: "com.googlecode.iterm2\" -- injected", windowID: "7"))
+        XCTAssertNil(HostCommand.closeScript(for: .ghostty, bundleID: "com.mitchellh.ghostty\" -- injected", windowID: "tab-1"))
+    }
+
+    /// windowID is interpolated unquoted in the iTerm2/Terminal template
+    /// (it's normally a small integer, printed with no surrounding quotes),
+    /// so a non-numeric windowID (e.g. containing `"`) must yield no script
+    /// at all rather than break out of the AppleScript command.
+    func testCloseScriptIterm2RejectsNonDigitWindowID() {
+        XCTAssertNil(HostCommand.closeScript(for: .iterm2, bundleID: "com.googlecode.iterm2", windowID: "12\"3"))
+    }
+
+    func testCloseScriptTerminalRejectsNonDigitWindowID() {
+        XCTAssertNil(HostCommand.closeScript(for: .terminal, bundleID: "com.apple.Terminal", windowID: "12\"3"))
+    }
+
+    func testCloseScriptIterm2AcceptsAllDigitWindowID() {
+        XCTAssertEqual(HostCommand.closeScript(for: .iterm2, bundleID: "com.googlecode.iterm2", windowID: "123"),
+                       "tell application id \"com.googlecode.iterm2\" to close (first window whose id is 123)")
+    }
 }

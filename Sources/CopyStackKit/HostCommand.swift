@@ -58,6 +58,14 @@ public enum HostCommand {
         bundleID: String,
         cmuxCLI: String? = nil
     ) -> [Launch] {
+        // `TerminalApp.detect` matches a running app's bundle id by prefix,
+        // so a hostile or malformed running instance could in principle
+        // report an id outside the normal reverse-DNS charset (e.g.
+        // containing a `"`). Every strategy below interpolates `bundleID`
+        // into a `tell application id "..."` AppleScript literal, so refuse
+        // to build anything at all for an id that doesn't look like a
+        // bundle id, rather than risk AppleScript injection.
+        guard isValidBundleID(bundleID) else { return [] }
         let command = pickerCommand(copystackPath: copystackPath, session: session)
         switch app {
         case .ghostty:
@@ -69,7 +77,7 @@ public enum HostCommand {
             // `pickerCommand`, per the comment on `pickerArgv`.
             let ghosttyCommand = pickerArgv(copystackPath: copystackPath, session: session)
             let ascript = """
-            tell application id "\(bundleID)"
+            tell application id "\(escapeForAppleScriptString(bundleID))"
                 set cfg to new surface configuration
                 set command of cfg to "\(escapeForAppleScriptString(ghosttyCommand))"
                 set wait after command of cfg to false
@@ -113,7 +121,7 @@ public enum HostCommand {
             // would otherwise silently fail here.
             let cmuxActionText = command.replacingOccurrences(of: "\\", with: "\\\\")
             let ascript = """
-            tell application id "\(bundleID)"
+            tell application id "\(escapeForAppleScriptString(bundleID))"
                 set w to new window
                 perform action "text: \(escapeForAppleScriptString(cmuxActionText))" & return on focused terminal of selected tab of w
                 return id of w
@@ -134,7 +142,7 @@ public enum HostCommand {
             // string-literal escaping on top (applied once, not twice).
             let shellCommand = "/bin/sh -c " + ShellQuote.single(command)
             let ascript = """
-            tell application id "\(bundleID)"
+            tell application id "\(escapeForAppleScriptString(bundleID))"
                 set w to create window with default profile command "\(escapeForAppleScriptString(shellCommand))"
                 tell current session of w
                     set columns to \(cols)
@@ -159,7 +167,7 @@ public enum HostCommand {
 
         case .terminal:
             let ascript = """
-            tell application id "\(bundleID)"
+            tell application id "\(escapeForAppleScriptString(bundleID))"
                 set t to do script "\(escapeForAppleScriptString(command))"
                 set number of columns of t to \(cols)
                 set number of rows of t to \(rows)
@@ -190,14 +198,32 @@ public enum HostCommand {
     /// quoted as an AppleScript string literal here (and escaped, in case it
     /// ever contained a `"` or `\`).
     public static func closeScript(for app: TerminalApp, bundleID: String, windowID: String) -> String? {
+        guard isValidBundleID(bundleID) else { return nil }
         switch app {
         case .kitty, .warp, .cmux:
             return nil
         case .ghostty:
-            return "tell application id \"\(bundleID)\" to close window (first window whose id is \"\(escapeForAppleScriptString(windowID))\")"
+            return "tell application id \"\(escapeForAppleScriptString(bundleID))\" to close window (first window whose id is \"\(escapeForAppleScriptString(windowID))\")"
         case .iterm2, .terminal:
-            return "tell application id \"\(bundleID)\" to close (first window whose id is \(windowID))"
+            // Unlike Ghostty's `id`, iTerm2/Terminal's is interpolated
+            // unquoted (it's a small integer, e.g. `7`, printed bare so
+            // AppleScript compares it numerically) — so, unlike Ghostty,
+            // escaping alone isn't enough to make an arbitrary windowID
+            // safe here; require it to be all ASCII digits or emit nothing.
+            guard isAllDigits(windowID) else { return nil }
+            return "tell application id \"\(escapeForAppleScriptString(bundleID))\" to close (first window whose id is \(windowID))"
         }
+    }
+
+    /// A bundle id must look like a reverse-DNS identifier
+    /// (`^[A-Za-z0-9.\-]+$`) before it's trusted to build any AppleScript,
+    /// openApp launch, or CLI launch — see the doc comment on `launch`.
+    private static func isValidBundleID(_ s: String) -> Bool {
+        !s.isEmpty && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
+    }
+
+    private static func isAllDigits(_ s: String) -> Bool {
+        !s.isEmpty && s.allSatisfy { $0.isASCII && $0.isNumber }
     }
 
     /// Escapes backslashes and double quotes so an arbitrary string can be
