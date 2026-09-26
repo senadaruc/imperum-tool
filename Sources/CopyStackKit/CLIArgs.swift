@@ -2,7 +2,11 @@ import Foundation
 
 // `CLIArgs.parse` returns `Result<CLIArgs, String>` per spec (a plain usage
 // message, not a typed error enum), which requires `String` to conform to
-// `Error` to satisfy `Result`'s `Failure: Error` constraint.
+// `Error` to satisfy `Result`'s `Failure: Error` constraint. Tried scoping
+// this down to `internal`: Swift rejects any access modifier at all on a
+// conformance-declaring extension ("'internal' modifier cannot be used with
+// extensions that declare protocol conformances"), so it stays implicitly
+// public, matching the visibility `CLIArgs.parse` already requires of it.
 extension String: @retroactive Error {}
 
 /// What `copystack` was invoked to do, as decoded from `CommandLine.arguments`.
@@ -33,8 +37,10 @@ public struct CLIArgs: Equatable {
     ///   list [--json] [--limit N]     -> .list(json:limit:)
     ///   --version                     -> .version
     ///   --help | -h                   -> .help
-    /// Any unrecognized flag, a `--session` without `--pick` (or vice versa),
-    /// or a non-integer `--limit` value is a usage error.
+    /// Any unrecognized flag, `--paste` together with `--copy`, a `--session`
+    /// without `--pick` (or vice versa), a `--session` value that isn't
+    /// 8-64 hex characters, or a `--limit` value that isn't a positive
+    /// integer is a usage error.
     public static func parse(_ argv: [String]) -> Result<CLIArgs, String> {
         guard !argv.isEmpty else {
             return .success(CLIArgs(mode: .stdout))
@@ -83,9 +89,15 @@ public struct CLIArgs: Equatable {
         if sawVersion {
             return .success(CLIArgs(mode: .version))
         }
+        if sawPaste && sawCopy {
+            return .failure("--paste and --copy cannot be used together")
+        }
         if sawPick || session != nil {
             guard sawPick, let session else {
                 return .failure("--pick and --session must be used together")
+            }
+            guard CLIArgs.isValidSession(session) else {
+                return .failure("--session must be 8-64 hexadecimal characters")
             }
             return .success(CLIArgs(mode: .pick(session: session)))
         }
@@ -96,6 +108,12 @@ public struct CLIArgs: Equatable {
             return .success(CLIArgs(mode: .copy))
         }
         return .failure("unrecognized arguments")
+    }
+
+    /// `--session` must look like a session id, not arbitrary text, before
+    /// it ever reaches an OSC 2 title-setting escape sequence.
+    private static func isValidSession(_ s: String) -> Bool {
+        (8...64).contains(s.count) && s.allSatisfy(\.isHexDigit)
     }
 
     private static func parseList(_ rest: [String]) -> Result<CLIArgs, String> {
@@ -113,8 +131,8 @@ public struct CLIArgs: Equatable {
                 guard i < rest.count else {
                     return .failure("--limit requires a value")
                 }
-                guard let n = Int(rest[i]) else {
-                    return .failure("--limit must be an integer")
+                guard let n = Int(rest[i]), n >= 1 else {
+                    return .failure("--limit must be a positive integer")
                 }
                 limit = n
             default:

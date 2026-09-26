@@ -86,6 +86,42 @@ final class CLIArgsTests: XCTestCase {
         let result = CLIArgs.parse(["list", "--bogus"])
         XCTAssertThrowsResultError(result)
     }
+
+    func testListLimitZeroIsError() {
+        let result = CLIArgs.parse(["list", "--limit", "0"])
+        XCTAssertThrowsResultError(result)
+    }
+
+    func testListLimitNegativeIsError() {
+        let result = CLIArgs.parse(["list", "--limit", "-1"])
+        XCTAssertThrowsResultError(result)
+    }
+
+    func testPasteAndCopyTogetherIsError() {
+        let result = CLIArgs.parse(["--paste", "--copy"])
+        XCTAssertThrowsResultError(result)
+    }
+
+    func testSessionTooShortIsError() {
+        let result = CLIArgs.parse(["--pick", "--session", "beef"])
+        XCTAssertThrowsResultError(result)
+    }
+
+    func testSessionTooLongIsError() {
+        let result = CLIArgs.parse(["--pick", "--session", String(repeating: "a", count: 65)])
+        XCTAssertThrowsResultError(result)
+    }
+
+    func testSessionNonHexIsError() {
+        let result = CLIArgs.parse(["--pick", "--session", "not-hex!"])
+        XCTAssertThrowsResultError(result)
+    }
+
+    func testSessionExactly64HexIsValid() {
+        let session = String(repeating: "a", count: 64)
+        let result = CLIArgs.parse(["--pick", "--session", session])
+        XCTAssertEqual(try? result.get(), CLIArgs(mode: .pick(session: session)))
+    }
 }
 
 private func XCTAssertThrowsResultError(

@@ -24,18 +24,20 @@ func printUsage() {
                                     session (used internally by Imperum Tool).
       copystack list [--json] [--limit N]
                                     Print the clip list non-interactively, one
-                                    line per clip ("<n>\\t<kind>\\t<title>"), or
-                                    as JSON with --json. No terminal needed.
+                                    line per clip ("<n>\\t<kind>\\t<title>",
+                                    <n> a 1-based index), or as JSON with
+                                    --json. No terminal needed.
       copystack --version           Print the version and exit.
       copystack --help | -h         Show this message and exit.
 
-    In the picker: type to search, arrows/^N/^P/Home/End/PageUp/PageDown to
-    move, left/right to switch category, Enter/Alt+1-9 to select, ^P to pin,
-    ^D to delete, Esc/^C to cancel.
+    In the picker: type to search, arrows/^N/Home/End/PageUp/PageDown to move,
+    left/right to switch category, Enter/Alt+1-9 to select, ^P to pin, ^D to
+    delete, Esc/^C to cancel.
 
-    Exit codes: 0 success/cancel-with-selection-made-elsewhere, 1 usage error
-    or an image was selected in stdout mode, 2 Imperum Tool is not reachable,
-    130 cancelled with Esc/^C.
+    Exit codes: 0 success, 1 usage error, an image was selected in stdout
+    mode, no controlling terminal, or the connection to Imperum Tool was lost
+    mid-session, 2 Imperum Tool is not reachable at startup, 130 cancelled
+    with Esc/^C.
     """)
 }
 
@@ -101,8 +103,8 @@ func printList(_ summaries: [ClipSummary], json: Bool, limit: Int?) {
             print(s)
         }
     } else {
-        for summary in limited {
-            print("\(summary.id)\t\(summary.kind.rawValue)\t\(summary.title)")
+        for (index, summary) in limited.enumerated() {
+            print("\(index + 1)\t\(summary.kind.rawValue)\t\(summary.title)")
         }
     }
 }
@@ -189,15 +191,9 @@ func handleEffect(_ effect: PickerModel.Effect) {
     case .redraw:
         render()
     case .pin(let id):
-        if let response = try? client.send(.pin(id: id)), case .clips(let summaries) = response {
-            model.replace(summaries: summaries, listHeight: FrameRenderer.listHeight(for: currentSize), now: Date(), calendar: calendar)
-        }
-        render()
+        handleListMutation(try client.send(.pin(id: id)))
     case .delete(let id):
-        if let response = try? client.send(.delete(id: id)), case .clips(let summaries) = response {
-            model.replace(summaries: summaries, listHeight: FrameRenderer.listHeight(for: currentSize), now: Date(), calendar: calendar)
-        }
-        render()
+        handleListMutation(try client.send(.delete(id: id)))
     case .paste(let id):
         handlePaste(id: id)
     case .copy(let id):
@@ -205,6 +201,30 @@ func handleEffect(_ effect: PickerModel.Effect) {
     case .cancel:
         exitInteractive(130)
     }
+}
+
+/// Common tail of `.pin`/`.delete`: on `.clips`, refresh the model's list; on
+/// any other response (including `.error`), surface it in the footer rather
+/// than silently dropping it; on a socket error the connection is gone, so
+/// restore the tty and exit like every other lost-connection path.
+func handleListMutation(_ mutation: @autoclosure () throws -> Response) {
+    let response: Response
+    do {
+        response = try mutation()
+    } catch {
+        tty.restore()
+        client.close()
+        fail(notRunningMessage, exitCode: 2)
+    }
+    switch response {
+    case .clips(let summaries):
+        model.replace(summaries: summaries, listHeight: FrameRenderer.listHeight(for: currentSize), now: Date(), calendar: calendar)
+    case .error(let code, let message):
+        model.status = "\(code.rawValue): \(message)"
+    default:
+        model.status = "unexpected response"
+    }
+    render()
 }
 
 func handlePaste(id: UUID) {

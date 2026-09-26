@@ -27,8 +27,14 @@ final class TTYSession {
     /// the only type POSIX guarantees is safe to read/write from a signal
     /// handler without a lock.
     private static var restored: sig_atomic_t = 0
-    private static var restoreFD: Int32 = -1
     private static var restoreTermios = termios()
+    private static var restoreFD: Int32 = -1
+
+    /// The exact bytes `restore()` writes, as a compile-time literal: no
+    /// heap allocation at call time (see `restore()`), so it's safe to run
+    /// from a signal handler that may have interrupted the main thread while
+    /// it held malloc's internal lock.
+    private static let restoreSequence: StaticString = "\u{1b}[?2004l\u{1b}[?25h\u{1b}[?1049l"
 
     /// Thrown by `init()` when `/dev/tty` cannot be opened (no controlling
     /// terminal, e.g. running under a non-interactive harness).
@@ -62,8 +68,13 @@ final class TTYSession {
         var raw = termios()
         tcgetattr(fd, &raw)
         savedTermios = raw
-        TTYSession.restoreFD = fd
+        // Set restoreTermios before restoreFD: a signal that lands between
+        // the two assignments must never see a valid restoreFD paired with
+        // stale/zeroed restoreTermios (which would restore the wrong tty
+        // settings), so restoreFD — the field restore() gates on — is
+        // published last.
         TTYSession.restoreTermios = raw
+        TTYSession.restoreFD = fd
 
         raw.c_lflag &= ~UInt(ICANON | ECHO | ISIG | IEXTEN)
         raw.c_iflag &= ~UInt(IXON | ICRNL)
@@ -99,8 +110,7 @@ final class TTYSession {
         guard restored == 0 else { return }
         restored = 1
         guard restoreFD >= 0 else { return }
-        let bytes: [UInt8] = Array("\u{1b}[?2004l\u{1b}[?25h\u{1b}[?1049l".utf8)
-        bytes.withUnsafeBufferPointer { buf in
+        restoreSequence.withUTF8Buffer { buf in
             _ = Darwin.write(restoreFD, buf.baseAddress, buf.count)
         }
         var t = restoreTermios
@@ -143,15 +153,26 @@ final class TTYSession {
     /// the caller's event loop at 100% CPU forever instead of ever waiting.
     func poll(timeoutMs: Int32) -> PollResult {
         let resizeReadFD = TTYSession.resizePipe.read
-        var readSet = fd_set()
-        withUnsafeMutablePointer(to: &readSet) { fdSetPointer in
-            __darwin_fd_set(fd, fdSetPointer)
-            __darwin_fd_set(resizeReadFD, fdSetPointer)
-        }
-        var tv = timeval(tv_sec: Int(timeoutMs / 1000), tv_usec: Int32((timeoutMs % 1000) * 1000))
         let maxFD = max(fd, resizeReadFD)
-        let n = select(maxFD + 1, &readSet, nil, nil, &tv)
-        guard n > 0 else { return .timeout }
+
+        var n: Int32
+        var readSet = fd_set()
+        while true {
+            readSet = fd_set()
+            withUnsafeMutablePointer(to: &readSet) { fdSetPointer in
+                __darwin_fd_set(fd, fdSetPointer)
+                __darwin_fd_set(resizeReadFD, fdSetPointer)
+            }
+            var tv = timeval(tv_sec: Int(timeoutMs / 1000), tv_usec: Int32((timeoutMs % 1000) * 1000))
+            n = select(maxFD + 1, &readSet, nil, nil, &tv)
+            if n < 0 && errno == EINTR { continue }
+            break
+        }
+        if n == 0 { return .timeout }
+        // A real (non-EINTR) select() error means the fd set is no longer
+        // usable (e.g. a closed/invalid fd) — treat it the same as EOF
+        // rather than silently spinning at .timeout forever.
+        guard n > 0 else { return .eof }
 
         if __darwin_fd_isset(resizeReadFD, &readSet) != 0 {
             var drain = [UInt8](repeating: 0, count: 64)
@@ -185,8 +206,10 @@ final class TTYSession {
         }
         signal(SIGTSTP, SIG_IGN)
         signal(SIGWINCH, { _ in
-            let byte: [UInt8] = [0]
-            byte.withUnsafeBufferPointer { buf in
+            // A local scalar (stack, not heap) so this allocates nothing,
+            // matching `restore()`'s signal-safety requirement above.
+            var byte: UInt8 = 0
+            withUnsafeBytes(of: &byte) { buf in
                 _ = Darwin.write(TTYSession.resizePipe.write, buf.baseAddress, 1)
             }
         })
