@@ -10,7 +10,6 @@ public protocol PasteboardReading {
     var types: [String] { get }
     func fileURLs() -> [URL]
     func imagePNG() -> PasteboardImage?
-    func colorHex() -> String?
     func string() -> String?
     /// RTF bytes for `public.rtf`, if present. `ImperumTool`'s reader
     /// returns nil for RTFD-with-attachments (`com.apple.flat-rtfd`
@@ -101,16 +100,18 @@ public enum ClipCapture {
     public static let maxRichTextBytes = 1_000_000
 
     /// The RTF companion for a text-family clip, or nil. Only consulted on
-    /// the text-wins path for text/link/email/color-fallback content — never
-    /// for a bare-URL image export, a colour, a file, or an image, since
-    /// none of those paths call this.
+    /// the text-wins path — never for a bare-URL image export, a file, or an
+    /// image, since none of those paths call this.
     private static func richTextIfPresent(from pb: PasteboardReading) -> Data? {
         guard pb.types.contains("public.rtf") else { return nil }
         guard let data = pb.rtf(), data.count <= maxRichTextBytes else { return nil }
         return data
     }
 
-    /// Richest representation first: files → text-vs-image → colour → string.
+    /// Richest representation first: files → text-vs-image → string. Round
+    /// 10: colour is no longer a distinct kind (`ClipClassifier.classifyText`
+    /// never returns `.color`) — a colour-shaped string is just `.text`, and
+    /// there is no longer a colour-object pasteboard type to read.
     ///
     /// Word, Pages, Mail and browsers (on a text selection) put a bitmap
     /// rendering of the selection on the pasteboard alongside the text (and
@@ -145,24 +146,7 @@ public enum ClipCapture {
                             payload: .blob(id: id, utType: "public.png", width: img.width, height: img.height))
             return CapturedClip(clip: clip, blobData: img.data)
         }
-        if let hex = pb.colorHex(), let norm = ClipClassifier.normalizedColorHex(hex) {
-            return CapturedClip(clip: Clip(kind: .color, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
-                                           title: norm, payload: .text(norm)), blobData: nil)
-        }
         guard let text, let kind = textKind else { return nil }
-        if kind == .color {
-            // Some functional colour strings (hsl/hsla, space-separated rgb)
-            // match the classifier's colour regex but aren't normalisable to
-            // hex; those must not surface as `.color` clips with a non-hex
-            // payload, so they fall back to a plain `.text` clip.
-            if let norm = ClipClassifier.normalizedColorHex(text) {
-                return CapturedClip(clip: Clip(kind: .color, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
-                                               title: norm, payload: .text(norm)), blobData: nil)
-            }
-            return CapturedClip(clip: Clip(kind: .text, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
-                                           title: ClipClassifier.title(forText: text), payload: .text(text),
-                                           richText: richTextIfPresent(from: pb)), blobData: nil)
-        }
         return CapturedClip(clip: Clip(kind: kind, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
                                        title: ClipClassifier.title(forText: text), payload: .text(text),
                                        richText: richTextIfPresent(from: pb)), blobData: nil)

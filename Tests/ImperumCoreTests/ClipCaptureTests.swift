@@ -11,7 +11,6 @@ private struct FakePasteboard: PasteboardReading {
     var types: [String] = ["public.utf8-plain-text"]
     var files: [URL] = []
     var image: PasteboardImage? = nil
-    var color: String? = nil
     var text: String? = nil
     var rtfData: Data? = nil
     let rtfFlag = ReadFlag()
@@ -20,7 +19,6 @@ private struct FakePasteboard: PasteboardReading {
     var failOnRead = false
     func fileURLs() -> [URL] { if failOnRead { XCTFail("content read on a vetoed change") }; return files }
     func imagePNG() -> PasteboardImage? { if failOnRead { XCTFail("content read on a vetoed change") }; return image }
-    func colorHex() -> String? { if failOnRead { XCTFail("content read on a vetoed change") }; return color }
     func string() -> String? { if failOnRead { XCTFail("content read on a vetoed change") }; return text }
     func rtf() -> Data? { if failOnRead { XCTFail("content read on a vetoed change") }; rtfFlag.read = true; return rtfData }
 }
@@ -160,18 +158,13 @@ final class ClipCaptureTests: XCTestCase {
         XCTAssertNotEqual(c1.clip.id, c3.clip.id)
     }
 
-    func testColorObjectBecomesHexTextClip() {
-        let pb = FakePasteboard(color: "#FF0080", text: nil)
-        let c = ClipCapture.capture(from: pb, context: ctx())!
-        XCTAssertEqual(c.clip.kind, .color)
+    /// Round 10: the Colors category is gone. A colour-shaped string
+    /// captures as ordinary text.
+    func testColourStringCapturesAsText() {
+        let c = ClipCapture.capture(from: FakePasteboard(text: "#FF0080"), context: ctx())!
+        XCTAssertEqual(c.clip.kind, .text)
         XCTAssertEqual(c.clip.payload, .text("#FF0080"))
         XCTAssertEqual(c.clip.title, "#FF0080")
-    }
-
-    func testColorStringIsNormalised() {
-        let c = ClipCapture.capture(from: FakePasteboard(text: "rgb(255,0,128)"), context: ctx())!
-        XCTAssertEqual(c.clip.kind, .color)
-        XCTAssertEqual(c.clip.payload, .text("#FF0080"))
     }
 
     func testUnnormalisableColorFunctionFallsBackToText() {

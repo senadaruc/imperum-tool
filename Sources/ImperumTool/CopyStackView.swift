@@ -142,17 +142,14 @@ private struct ClipRow: View {
                 Image(nsImage: t).resizable().aspectRatio(contentMode: .fill).frame(width: 32, height: 32)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             } else { glyph("photo") }
-        case .color:
-            if case .text(let hex) = clip.payload, let c = NSColor(hex: hex) {
-                RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: c))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.2)))
-            } else { glyph("paintpalette") }
+        // Legacy: round 10 removed the Colors category. A .color clip from
+        // an old archive shows the plain text glyph, like .text.
+        case .color, .text: glyph("text.alignleft")
         case .link:
             if let f = favicon { Image(nsImage: f).resizable().frame(width: 20, height: 20) } else { glyph("link") }
         case .email: glyph("envelope")
         case .video: glyph("film")
         case .file: glyph("doc")
-        case .text: glyph("text.alignleft")
         }
     }
 

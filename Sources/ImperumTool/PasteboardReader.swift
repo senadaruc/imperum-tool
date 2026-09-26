@@ -31,12 +31,6 @@ final class NSPasteboardReader: PasteboardReading {
         return PasteboardImage(data: png, width: rep.pixelsWide, height: rep.pixelsHigh)
     }
 
-    func colorHex() -> String? {
-        guard pb.types?.contains(.color) == true, let c = NSColor(from: pb)?.usingColorSpace(.sRGB) else { return nil }
-        return String(format: "#%02X%02X%02X", Int((c.redComponent * 255).rounded()),
-                      Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
-    }
-
     func string() -> String? { pb.string(forType: .string) }
 
     /// Only `public.rtf`. If the pasteboard offers rich text solely as

@@ -18,7 +18,15 @@ final class ClipQueryTests: XCTestCase {
         XCTAssertNil(ClipCategory.all.kind)
         XCTAssertEqual(ClipCategory.links.kind, .link)
         XCTAssertEqual(ClipCategory.emails.kind, .email)
-        XCTAssertEqual(ClipCategory.allCases.map(\.title), ["All", "Text", "Links", "Emails", "Colors", "Images", "Videos", "Files"])
+        XCTAssertEqual(ClipCategory.allCases.map(\.title), ["All", "Text", "Links", "Emails", "Images", "Videos", "Files"])
+    }
+
+    /// Round 10: the Colors category is gone; a legacy `.color` clip (from an
+    /// archive written before round 10) must still be reachable, under Text.
+    func testLegacyColorClipStaysReachableUnderTextCategory() {
+        let legacyColor = Clip(kind: .color, sourceAppName: "A", sourceBundleID: nil, title: "#FF0080", payload: .text("#FF0080"))
+        let clips = [clip(.text, "Alpha", at: 1), legacyColor]
+        XCTAssertEqual(ClipFilter.apply(clips, category: .text, query: "").map(\.title), ["Alpha", "#FF0080"])
     }
 
     func testFilterByCategoryAndQueryOnTitleAndBody() {

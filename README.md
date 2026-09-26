@@ -46,7 +46,7 @@ Design: `docs/superpowers/specs/2026-09-06-tap-gestures-design.md`.
 Copy several things, then choose what to paste. **Double-tap ⌘V** (or ⌘⇧V,
 or a palm-rest tap bound to "Show Copy Stack") opens a floating panel over the
 app you are in: search as you type, ←→ for category (Text · Links · Emails ·
-Colors · Images · Videos · Files), ↑↓ to move, ↩ or ⌘1–9 to paste, ⌘P to pin,
+Images · Videos · Files), ↑↓ to move, ↩ or ⌘1–9 to paste, ⌘P to pin,
 ⌫ to delete, esc to close. Return pastes into the app you were in — files as
 files, images as images.
 

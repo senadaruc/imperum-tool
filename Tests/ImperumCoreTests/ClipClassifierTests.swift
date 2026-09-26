@@ -23,15 +23,13 @@ final class ClipClassifierTests: XCTestCase {
         XCTAssertEqual(ClipClassifier.classifyText("mail me: a@b.co"), .text)
     }
 
-    func testColors() {
-        XCTAssertEqual(ClipClassifier.classifyText("#fff"), .color)
-        XCTAssertEqual(ClipClassifier.classifyText("#FF00AA80"), .color)
-        XCTAssertEqual(ClipClassifier.classifyText("rgb(1, 2, 3)"), .color)
-        XCTAssertEqual(ClipClassifier.classifyText("hsla(1,2%,3%,0.5)"), .color)
-        XCTAssertEqual(ClipClassifier.classifyText("#ggg"), .text)
-        XCTAssertEqual(ClipClassifier.normalizedColorHex("#fff"), "#FFFFFF")
-        XCTAssertEqual(ClipClassifier.normalizedColorHex("rgb(255, 0, 128)"), "#FF0080")
-        XCTAssertNil(ClipClassifier.normalizedColorHex("hello"))
+    /// Round 10: the Colors category is gone. A colour-shaped string is
+    /// ordinary text from now on (not a link/email, so .text).
+    func testColourStringsAreJustText() {
+        XCTAssertEqual(ClipClassifier.classifyText("#fff"), .text)
+        XCTAssertEqual(ClipClassifier.classifyText("#FF00AA80"), .text)
+        XCTAssertEqual(ClipClassifier.classifyText("rgb(1, 2, 3)"), .text)
+        XCTAssertEqual(ClipClassifier.classifyText("hsla(1,2%,3%,0.5)"), .text)
     }
 
     func testPlainText() {

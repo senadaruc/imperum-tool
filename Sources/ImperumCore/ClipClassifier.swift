@@ -4,7 +4,8 @@ import UniformTypeIdentifiers
 
 /// Decides what a copied thing IS. Pure functions on strings and URLs so the
 /// rules are unit-testable; the AppKit reader decides which representation to
-/// hand in (files → image → colour → string).
+/// hand in (files → text-vs-image → string). Round 10: colour is no longer a
+/// distinct kind — a colour-shaped string classifies as plain `.text`.
 public enum ClipClassifier {
     public static let maxTitleLength = 120
 
@@ -15,12 +16,10 @@ public enum ClipClassifier {
     /// keep looking for real content.
     private static let maxLeadingWhitespaceScan = 4096
 
-    private static let hexColor = try! NSRegularExpression(pattern: #"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"#)
-    private static let funcColor = try! NSRegularExpression(pattern: #"^(?:rgb|rgba|hsl|hsla)\(\s*[^()]+\)$"#, options: [.caseInsensitive])
     private static let email = try! NSRegularExpression(pattern: #"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$"#)
 
-    /// A link/email/colour string is never longer than this; above it we skip
-    /// the trim + regex work entirely (`classifyText` runs on every clipboard
+    /// A link/email string is never longer than this; above it we skip the
+    /// trim + regex work entirely (`classifyText` runs on every clipboard
     /// change, so a multi-MB paste must not pay for a full-string regex scan).
     private static let maxClassifiableLength = 4096
 
@@ -31,7 +30,6 @@ public enum ClipClassifier {
         guard raw.contains(where: { !$0.isWhitespace }) else { return nil }
         if raw.utf8.count > maxClassifiableLength { return .text }
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if isColor(s) { return .color }
         if isLink(s) { return .link }
         if matches(email, s) { return .email }
         return .text
@@ -82,31 +80,7 @@ public enum ClipClassifier {
 
     public static func title(imageWidth w: Int, height h: Int) -> String { "Image \(w)×\(h)" }
 
-    /// "#RRGGBB" (alpha dropped) for any recognised colour string, else nil.
-    public static func normalizedColorHex(_ raw: String) -> String? {
-        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if matches(hexColor, s) {
-            var hex = String(s.dropFirst()).uppercased()
-            if hex.count == 3 || hex.count == 4 { hex = hex.map { "\($0)\($0)" }.joined() }
-            return "#" + String(hex.prefix(6))
-        }
-        if matches(funcColor, s), s.lowercased().hasPrefix("rgb") {
-            let inner = s.drop(while: { $0 != "(" }).dropFirst().dropLast()
-            let parts = inner.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            guard parts.count >= 3 else { return nil }
-            let comps = parts.prefix(3).compactMap { p -> Int? in
-                if p.hasSuffix("%"), let v = Double(p.dropLast()) { return Int((v / 100 * 255).rounded()) }
-                return Int(p)
-            }
-            guard comps.count == 3 else { return nil }
-            return String(format: "#%02X%02X%02X", min(255, max(0, comps[0])), min(255, max(0, comps[1])), min(255, max(0, comps[2])))
-        }
-        return nil
-    }
-
     // MARK: helpers
-
-    private static func isColor(_ s: String) -> Bool { matches(hexColor, s) || matches(funcColor, s) }
 
     private static func isLink(_ s: String) -> Bool {
         guard s.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,

@@ -20,12 +20,9 @@ final class ClipPaster {
         let write: (NSPasteboard) -> Void
         switch clip.payload {
         case .text(let s):
-            if clip.kind == .color, let color = NSColor(hex: s) {
-                write = { pb in
-                    pb.writeObjects([color])
-                    pb.setString(s, forType: .string)
-                }
-            } else if let rtf = clip.richText {
+            // A legacy .color clip (round 10 removed the Colors category)
+            // falls into this branch too and pastes its hex string as text.
+            if let rtf = clip.richText {
                 // Both representations: RTF-capable apps (Word, Pages, Mail,
                 // TextEdit) take the formatting, plain-text apps take the string.
                 write = { pb in
@@ -54,17 +51,5 @@ final class ClipPaster {
         guard ActionRunner.ensureAccessibility() else { return true }   // clip is on the pasteboard; user can ⌘V
         CmdVTap.postKey(9, flags: .maskCommand)
         return true
-    }
-}
-
-extension NSColor {
-    /// "#RRGGBB" → sRGB colour.
-    convenience init?(hex: String) {
-        var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard h.hasPrefix("#") else { return nil }
-        h.removeFirst()
-        guard h.count == 6, let v = UInt32(h, radix: 16) else { return nil }
-        self.init(srgbRed: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255,
-                  blue: CGFloat(v & 0xFF) / 255, alpha: 1)
     }
 }

@@ -1,7 +1,13 @@
 import Foundation
 
 public enum ClipKind: String, Codable, CaseIterable, Hashable {
-    case text, link, email, color, image, video, file
+    case text, link, email
+    /// Legacy: no longer produced (round 10 removed the Colors category —
+    /// a colour-shaped string is now just `.text`). Kept so archives written
+    /// before round 10 still decode; `ClipCategory.text` also matches this
+    /// kind so old colour clips stay reachable in the panel.
+    case color
+    case image, video, file
 }
 
 /// What a clip carries. Text-family kinds (text/link/email/color) store the

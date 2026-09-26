@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ClipCategory: String, CaseIterable, Equatable {
-    case all, text, links, emails, colors, images, videos, files
+    case all, text, links, emails, images, videos, files
 
     public var kind: ClipKind? {
         switch self {
@@ -9,7 +9,6 @@ public enum ClipCategory: String, CaseIterable, Equatable {
         case .text: return .text
         case .links: return .link
         case .emails: return .email
-        case .colors: return .color
         case .images: return .image
         case .videos: return .video
         case .files: return .file
@@ -22,11 +21,20 @@ public enum ClipCategory: String, CaseIterable, Equatable {
         case .text: return "Text"
         case .links: return "Links"
         case .emails: return "Emails"
-        case .colors: return "Colors"
         case .images: return "Images"
         case .videos: return "Videos"
         case .files: return "Files"
         }
+    }
+
+    /// Whether a clip of kind `k` belongs in this category. `.text` also
+    /// matches the legacy `.color` kind (round 10: Colors is no longer a
+    /// distinct category, but old archives may still hold `.color` clips —
+    /// they stay reachable under Text rather than disappearing).
+    fileprivate func matches(_ k: ClipKind) -> Bool {
+        guard let target = kind else { return true }   // .all
+        if self == .text { return k == .text || k == .color }
+        return k == target
     }
 }
 
@@ -40,7 +48,7 @@ public enum ClipFilter {
             s.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil
         }
         return clips.filter { c in
-            if let k = category.kind, c.kind != k { return false }
+            if !category.matches(c.kind) { return false }
             if q.isEmpty { return true }
             if matches(c.title) { return true }
             if case .text(let body) = c.payload, matches(body) { return true }
