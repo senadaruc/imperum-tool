@@ -35,9 +35,9 @@ func printUsage() {
     delete, Esc/^C to cancel.
 
     Exit codes: 0 success, 1 usage error, an image was selected in stdout
-    mode, no controlling terminal, or the connection to Imperum Tool was lost
-    mid-session, 2 Imperum Tool is not reachable at startup, 130 cancelled
-    with Esc/^C.
+    mode, no controlling terminal, or input closed, 2 Imperum Tool is not
+    running, command-line access is off, or the connection was lost at any
+    point, 130 cancelled with Esc/^C.
     """)
 }
 

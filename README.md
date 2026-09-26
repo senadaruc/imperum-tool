@@ -87,10 +87,10 @@ trigger:
     copystack --version
     copystack --help
 
-Exit codes: `0` success, `1` a usage error (or the connection to Imperum
-Tool was lost mid-session, or an image was picked in stdout mode), `2`
-Imperum Tool isn't running or command-line access is off, `130` cancelled
-with Esc/^C.
+Exit codes: `0` success, `1` a usage error (or an image was picked in
+stdout mode, or there's no controlling terminal, or input closed), `2`
+Imperum Tool isn't running, command-line access is off, or the
+connection was lost at any point, `130` cancelled with Esc/^C.
 
 Install it once from Settings › Clipboard › Terminal ("Install command-line
 tool…", which symlinks `/usr/local/bin/copystack`), or by hand:
