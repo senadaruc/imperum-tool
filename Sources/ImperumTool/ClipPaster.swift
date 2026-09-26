@@ -13,26 +13,34 @@ final class ClipPaster {
 
     @discardableResult
     func paste(_ clip: Clip) -> Bool {
-        let pb = NSPasteboard.general
-        pb.clearContents()
+        // Resolve everything that can fail before touching the pasteboard, so a
+        // missing blob leaves the user's existing clipboard contents untouched.
+        let write: (NSPasteboard) -> Void
         switch clip.payload {
         case .text(let s):
             if clip.kind == .color, let color = NSColor(hex: s) {
-                pb.writeObjects([color])
-                pb.setString(s, forType: .string)
+                write = { pb in
+                    pb.writeObjects([color])
+                    pb.setString(s, forType: .string)
+                }
             } else {
-                pb.setString(s, forType: .string)
+                write = { pb in pb.setString(s, forType: .string) }
             }
         case .fileURLs(let urls):
-            pb.writeObjects(urls.map { $0 as NSURL })
+            write = { pb in pb.writeObjects(urls.map { $0 as NSURL }) }
         case .blob(let id, _, _, _):
             guard let png = archive()?.loadBlob(id: id), let img = NSImage(data: png) else {
                 HUD.shared.show("That image is no longer in the archive", symbol: "photo.badge.exclamationmark")
                 return false
             }
-            pb.setData(png, forType: .png)
-            if let tiff = img.tiffRepresentation { pb.setData(tiff, forType: .tiff) }
+            write = { pb in
+                pb.setData(png, forType: .png)
+                if let tiff = img.tiffRepresentation { pb.setData(tiff, forType: .tiff) }
+            }
         }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        write(pb)
         lastOwnChangeCount = pb.changeCount
         guard ActionRunner.ensureAccessibility() else { return true }   // clip is on the pasteboard; user can ⌘V
         CmdVTap.postKey(9, flags: .maskCommand)
