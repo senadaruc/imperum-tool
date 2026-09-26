@@ -78,4 +78,25 @@ final class ClipClassifierTests: XCTestCase {
         let hugeWhitespace = String(repeating: " ", count: 5_000_000)
         XCTAssertNil(ClipClassifier.classifyText(hugeWhitespace))
     }
+
+    /// A modest run of leading whitespace must still be skipped correctly.
+    func testTitleSkipsLeadingWhitespaceOnly() {
+        let text = String(repeating: " ", count: 100) + "content\nrest"
+        XCTAssertEqual(ClipClassifier.title(forText: text), "content")
+    }
+
+    /// Regression test: must fail before the fix (unbounded leading-whitespace
+    /// skip) and pass after it (bounded to maxLeadingWhitespaceScan). 5 MB of
+    /// whitespace/blank lines with no real content within the scan cap must
+    /// return "" almost instantly, not walk the whole 5 MB looking for content
+    /// that is never found.
+    func testTitleOfHugeLeadingWhitespaceIsFast() {
+        let leading = String(repeating: " \n", count: 2_500_000) // 5,000,000 whitespace Characters
+        let huge = leading + "content"
+        let start = DispatchTime.now()
+        let result = ClipClassifier.title(forText: huge)
+        let elapsedSeconds = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000_000
+        XCTAssertEqual(result, "")
+        XCTAssertLessThan(elapsedSeconds, 0.010, "title(forText:) must not scan the whole leading whitespace run")
+    }
 }

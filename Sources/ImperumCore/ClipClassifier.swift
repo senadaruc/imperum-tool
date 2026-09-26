@@ -8,6 +8,13 @@ import UniformTypeIdentifiers
 public enum ClipClassifier {
     public static let maxTitleLength = 120
 
+    /// Cap on how many leading whitespace/blank-line Characters `title(forText:)`
+    /// will skip before giving up. A clip that is entirely (or almost entirely)
+    /// leading whitespace/blank lines for megabytes must not be scanned
+    /// character-by-character in full; past this cap we return "" rather than
+    /// keep looking for real content.
+    private static let maxLeadingWhitespaceScan = 4096
+
     private static let hexColor = try! NSRegularExpression(pattern: #"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"#)
     private static let funcColor = try! NSRegularExpression(pattern: #"^(?:rgb|rgba|hsl|hsla)\(\s*[^()]+\)$"#, options: [.caseInsensitive])
     private static let email = try! NSRegularExpression(pattern: #"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$"#)
@@ -44,11 +51,16 @@ public enum ClipClassifier {
         var idx = raw.startIndex
         let end = raw.endIndex
         // Skip leading blank lines and leading whitespace on the first
-        // non-blank line.
-        while idx < end, raw[idx].isWhitespace {
+        // non-blank line, but never more than maxLeadingWhitespaceScan
+        // Characters: a multi-MB run of whitespace must not be walked in
+        // full just to discover there is no real content (or to find it
+        // far past a reasonable title length).
+        var skipped = 0
+        while idx < end, skipped < maxLeadingWhitespaceScan, raw[idx].isWhitespace {
             idx = raw.index(after: idx)
+            skipped += 1
         }
-        guard idx < end else { return "" }
+        guard idx < end, !raw[idx].isWhitespace else { return "" }
         var result = ""
         result.reserveCapacity(maxTitleLength)
         var count = 0
