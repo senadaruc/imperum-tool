@@ -279,6 +279,10 @@ controller.
 `clipboardShowFavicons` (false), `clipboardExcludedBundleIDs` ([String]),
 `clipboardPaused` (false).
 
+Added 2026-09-27 (see `2026-09-27-clipboard-limits-and-shortcuts-design.md`):
+`clipboardCategoryLimits` ([String: Int], keyed by category, absent = off)
+and `clipboardShortcuts` (the `PanelShortcuts` map, default = the keys above).
+
 ## Error handling
 
 - Accessibility not granted: tap is not installed; badge menu shows

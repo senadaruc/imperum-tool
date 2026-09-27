@@ -43,12 +43,20 @@ Design: `docs/superpowers/specs/2026-09-06-tap-gestures-design.md`.
 
 ## Copy Stack (clipboard history)
 
-Copy several things, then choose what to paste. **Double-tap ⌘V** (or ⌘⇧V,
-or a palm-rest tap bound to "Show Copy Stack") opens a floating panel over the
-app you are in: search as you type, ←→ for category (Text · Links · Emails ·
-Images · Videos · Files), ↑↓ to move, ↩ or ⌘1–9 to paste, ⌘P to pin,
-⌫ to delete, esc to close. Return pastes into the app you were in — files as
-files, images as images.
+Copy several things, then choose what to paste. **Double-tap ⌘V** (or the
+open-panel hotkey, ⌘⇧V by default, or a palm-rest tap bound to "Show Copy
+Stack") opens a floating panel over the app you are in: search as you type,
+←→ for category (Text · Links · Emails · Images · Videos · Files), ↑↓ to
+move, ↩ or ⌘1–9 to paste, ⌘P to pin, ⌫ to delete, esc to close. Those are
+the defaults: every one of them, and the hotkey, can be re-recorded in
+Settings › Clipboard › Shortcuts (the terminal picker below keeps its own
+fixed keys). Return pastes into the app you were in — files as files,
+images as images.
+
+Besides the global "Maximum stack size", each category can get its own cap
+(Settings › Clipboard › Limit per category): once a category is over it,
+its oldest unpinned clips are dropped automatically. Pinned clips never
+count.
 
 Privacy: nothing leaves this Mac. Anything a password manager marks concealed
 or transient is never captured, apps on the exclusion list are ignored, and
@@ -86,6 +94,7 @@ In the picker: type to search (search covers up to the first 2 KiB of a
 clip), ↑↓ / ^N ^K ^J to move, ←→ for category, PgUp/PgDn/Home/End, ⏎ to
 paste (copies in `--copy` mode, prints to stdout otherwise), Alt+1–9 for a
 quick pick, ^P to pin, ^D to delete, ^U to clear the query, Esc/^C to cancel.
+These keys are fixed; the Shortcuts settings only apply to the floating panel.
 `NO_COLOR` is honoured. The window needs at least 40 columns × 8 rows.
 
 `copystack` is also a standalone CLI you can use outside the double-tap
@@ -155,5 +164,5 @@ can't take arguments or write files.
 
 ## Develop / test
 
-    swift test                 # ImperumCore logic + samplers + tap detector + CopyStackKit (382 tests)
+    swift test                 # ImperumCore logic + samplers + tap detector + CopyStackKit (443 tests)
     swift run ImperumTool        # run from source
