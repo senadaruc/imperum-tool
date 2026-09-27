@@ -41,6 +41,13 @@ struct ClipboardSettingsTab: View {
                     }
                 }
                 Stepper("Maximum stack size: \(store.settings.maxStack)", value: $store.settings.maxStack, in: 20...2000, step: 10)
+                DisclosureGroup("Limit per category") {
+                    ForEach(ClipCategory.allCases.filter { $0 != .all }, id: \.self) { c in
+                        CategoryLimitRow(category: c, store: store)
+                    }
+                    Text("Pinned clips never count. The global maximum still applies.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Stepper("Forget unpinned clips after \(store.settings.retentionDays) days", value: $store.settings.retentionDays, in: 1...365)
                 Toggle("Clear stack when Imperum Tool quits", isOn: $store.settings.clearOnQuit)
                 Text("Off by default: your clips are kept in a local encrypted file so your history is there next time. Turn on for session-only memory. Either way, nothing leaves this Mac.")
@@ -268,5 +275,35 @@ enum CLIInstaller {
                                      userInfo: [NSLocalizedDescriptionKey: (err[NSAppleScript.errorMessage] as? String) ?? "Admin command failed."]))
         }
         return .success(())
+    }
+}
+
+/// One category's optional cap: a toggle, and a stepper while it is on.
+/// Turning on writes the default; turning off removes the key (= no cap).
+private struct CategoryLimitRow: View {
+    let category: ClipCategory
+    @ObservedObject var store: ClipboardSettingsStore
+
+    private var enabled: Binding<Bool> {
+        Binding(get: { store.settings.categoryLimits[category.rawValue] != nil },
+                set: { on in
+                    if on { store.settings.categoryLimits[category.rawValue] = ClipboardSettings.categoryLimitDefault }
+                    else { store.settings.categoryLimits.removeValue(forKey: category.rawValue) }
+                })
+    }
+
+    private var value: Binding<Int> {
+        Binding(get: { store.settings.categoryLimits[category.rawValue] ?? ClipboardSettings.categoryLimitDefault },
+                set: { store.settings.categoryLimits[category.rawValue] = $0 })
+    }
+
+    var body: some View {
+        HStack {
+            Toggle(category.title, isOn: enabled)
+            Spacer()
+            if enabled.wrappedValue {
+                Stepper("\(value.wrappedValue) clips", value: value, in: ClipboardSettings.categoryLimitRange, step: 10)
+            }
+        }
     }
 }
