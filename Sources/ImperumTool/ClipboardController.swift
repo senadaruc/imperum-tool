@@ -18,12 +18,15 @@ final class ClipboardController: ObservableObject {
     /// Why the global hotkey could not be registered (e.g. another app owns
     /// it), for the settings tab. nil when registered or not in use.
     @Published private(set) var hotkeyError: String?
+    /// What the screenshot folder watcher is doing, for the settings caption.
+    @Published private(set) var screenshotWatchStatus = ""
     private let settings: ClipboardSettingsStore
     private let store = ClipStore()
     private let keyProvider = KeychainArchiveKey()
     private var archive: ClipArchive?
     private let reader = NSPasteboardReader()
     private let tap = CmdVTap()
+    private let screenshots = ScreenshotImporter()
     /// Session-only image cache; makes paste and thumbnails work even when
     /// the archive never sees the blob (session-only mode) or is unavailable.
     private let blobCache = BlobCache()
@@ -89,6 +92,16 @@ final class ClipboardController: ObservableObject {
         model.onPaste = { [weak self] clip in self?.paste(clip) }
         model.onClose = { [weak self] in self?.panel.hide() }
         tap.onOpenPanel = { [weak self] in self?.openCopyStack(anchor: .mouseScreen) }
+        screenshots.onCaptured = { [weak self] captured in self?.insertCaptured(captured) }
+        screenshots.onStatusChanged = { [weak self] in
+            guard let self else { return }
+            self.screenshotWatchStatus = self.screenshots.status
+        }
+        for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.screenshots.refreshRoots()
+            }
+        }
         statusItem.onShow = { [weak self] in self?.showPanel(anchor: .mainScreen) }
         statusItem.onClear = { [weak self] in self?.confirmClear() }
         statusItem.onSettings = { SettingsTabs.requestedTab = "clipboard"; NSApp.sendAction(#selector(AppController.showSettings), to: nil, from: nil) }
@@ -152,6 +165,7 @@ final class ClipboardController: ObservableObject {
             hotkeyError = tap.hotkeyError
         }
         if s.enabled { startPolling() } else { stopPolling(); panel.hide() }
+        screenshots.update(enabled: s.enabled && s.captureScreenshotFiles)
 
         let clearOnQuitTurnedOn = lastApplied.map { !$0.clearOnQuit && s.clearOnQuit } ?? false
         if clearOnQuitTurnedOn { try? archive?.deleteAll() }   // session-only from now on: nothing left on disk
@@ -191,6 +205,14 @@ final class ClipboardController: ObservableObject {
         // this content read (e.g. another app copied right behind us). Discard a
         // stale capture and let the next poll pick up the newer change.
         guard reader.changeCount == count else { return }
+        if captured.clip.kind == .screenshot, case .blob(_, _, let w, let h) = captured.clip.payload,
+           screenshots.isDuplicate(width: w, height: h) { return }
+        insertCaptured(captured)
+    }
+
+    /// Shared by the pasteboard poll and the screenshot importer: cache the
+    /// blob (and thumbnail), persist it unless session-only, insert the clip.
+    private func insertCaptured(_ captured: CapturedClip) {
         if let data = captured.blobData, let id = captured.clip.blobID {
             let thumb = ImageThumbnail.png(from: data, maxEdge: 64)
             // Always cache in memory first: session-only mode (or an

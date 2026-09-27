@@ -66,6 +66,7 @@ public struct CapturedClip: Equatable {
     public var clip: Clip
     /// PNG bytes for image clips; the caller writes them to the archive.
     public var blobData: Data?
+    public init(clip: Clip, blobData: Data?) { self.clip = clip; self.blobData = blobData }
 }
 
 public enum ClipCapture {

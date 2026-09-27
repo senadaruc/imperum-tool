@@ -58,3 +58,15 @@ enum ImageThumbnail {
         return out.representation(using: .png, properties: [:])
     }
 }
+
+enum ImageFile {
+    /// Decodes an image file (PNG/JPEG/HEIC) to PNG bytes plus pixel size,
+    /// the same shape the pasteboard reader produces, so a saved screenshot
+    /// goes through the identical blob/thumbnail/paste path as a copied one.
+    static func pngImage(at url: URL) -> PasteboardImage? {
+        guard let img = NSImage(contentsOf: url), let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+              rep.pixelsWide > 0, rep.pixelsHigh > 0,
+              let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        return PasteboardImage(data: png, width: rep.pixelsWide, height: rep.pixelsHigh)
+    }
+}
