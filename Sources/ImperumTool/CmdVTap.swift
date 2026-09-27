@@ -157,8 +157,11 @@ final class CmdVTap {
             return noErr
         }, 1, &spec, refcon, &hotKeyHandler)
         let id = EventHotKeyID(signature: OSType(0x494D5052) /* 'IMPR' */, id: 1)
+        // Exclusive: with options 0 Carbon accepts a combo another process
+        // already owns and just never delivers it, so the "already used"
+        // status can only surface when we ask for exclusivity.
         let status = RegisterEventHotKey(UInt32(combo.keyCode), Self.carbonModifiers(combo.modifiers), id,
-                                         GetApplicationEventTarget(), 0, &hotKeyRef)
+                                         GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &hotKeyRef)
         hotkeyError = PanelShortcuts.hotkeyRegistrationMessage(status: status)
         if status != noErr { hotKeyRef = nil }
     }
