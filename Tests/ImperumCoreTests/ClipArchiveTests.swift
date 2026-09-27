@@ -103,4 +103,16 @@ final class ClipArchiveTests: XCTestCase {
         }
         XCTAssertEqual(try good.loadIndex(), clips)
     }
+
+    /// An index written by a newer build may contain a clip kind this build
+    /// does not know. Losing that one clip is fine; losing the archive is not.
+    func testUnknownClipKindDropsOnlyThatClip() throws {
+        let a = archive()
+        try a.saveIndex([clip("keep1"), clip("drop"), clip("keep2")])
+        var items = try JSONSerialization.jsonObject(with: try a.readSealedForTesting()) as! [[String: Any]]
+        XCTAssertEqual(items[1]["title"] as? String, "drop")
+        items[1]["kind"] = "hologram"
+        try a.writeSealedForTesting(try JSONSerialization.data(withJSONObject: items))
+        XCTAssertEqual(try a.loadIndex().map(\.title), ["keep1", "keep2"])
+    }
 }

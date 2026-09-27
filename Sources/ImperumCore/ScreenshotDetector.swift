@@ -50,21 +50,29 @@ public struct FileEvent: Equatable {
 /// `.settle` = ask again after `settleDelay` with a fresh byte size.
 public enum FileVerdict: Equatable { case ignore, settle, accept(ScreenshotSource) }
 
+/// Where a screenshot clip came from, for pairing a CleanShot save with its copy.
+public enum CaptureChannel: Equatable { case file, pasteboard }
+
 /// Decides which file events are new screenshots and collapses a screenshot
 /// that arrives twice (CleanShot save + copy). Pure: the app feeds it facts.
 public struct ScreenshotDetector {
     public static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "heic"]
     public static let dedupeWindow: TimeInterval = 5
     public static let settleDelay: TimeInterval = 0.3
+    /// Sightings of one file before it is given up on (an empty or endlessly
+    /// rewritten file must not be re-checked for the rest of the session).
+    public static let maxSettleAttempts = 20
     public static let cleanShotMediaPath = "Library/Application Support/CleanShot/media"
 
     public let startedAt: Date
-    /// Last byte size seen per URL, for the settle check.
-    private var lastSize: [URL: Int] = [:]
-    /// URLs already turned into clips; later events for them are ignored.
+    /// First sighting of the current byte size per URL, for the settle check.
+    private var lastSighting: [URL: (size: Int, at: Date)] = [:]
+    private var attempts: [URL: Int] = [:]
+    /// URLs already turned into clips, or given up on; later events are ignored.
     private var accepted: Set<URL> = []
-    /// Recent screenshot pixel sizes, for dedupe.
-    private var recent: [(width: Int, height: Int, at: Date)] = []
+    private var givenUp: Set<URL> = []
+    /// Recent screenshot clips per channel, for pairing a save with its copy.
+    private var recent: [(width: Int, height: Int, channel: CaptureChannel, clipID: UUID, at: Date)] = []
 
     public init(startedAt: Date) { self.startedAt = startedAt }
 
@@ -95,7 +103,30 @@ public struct ScreenshotDetector {
                 collapsed.append(r)
             }
         }
+        // The Desktop is shared (downloads, exports, AirDrops land there), so it
+        // is never dedicated, even when it is CleanShot's export folder (its
+        // default): there only tagged or screenshot-named files count.
+        for i in collapsed.indices where same(collapsed[i].url, desktop) { collapsed[i].dedicated = false }
         return collapsed
+    }
+
+    /// The most specific root containing `path` (FSEvents reports real paths,
+    /// so callers pass roots with symlinks resolved). Matches on a `/`
+    /// boundary, so "~/Desktop" never claims "~/Desktop Old/x.png".
+    public static func root(for path: String, in roots: [ScreenshotRoot]) -> ScreenshotRoot? {
+        roots
+            .filter { let r = $0.url.standardizedFileURL.path; return path == r || path.hasPrefix(r.hasSuffix("/") ? r : r + "/") }
+            .max { $0.url.standardizedFileURL.path.count < $1.url.standardizedFileURL.path.count }
+    }
+
+    /// Paths to hand FSEvents: a root nested inside another is already covered
+    /// by its ancestor's recursive stream.
+    public static func streamPaths(_ roots: [ScreenshotRoot]) -> [String] {
+        let paths = roots.map { $0.url.standardizedFileURL.path }
+        return paths.enumerated().filter { i, p in
+            !paths.enumerated().contains { j, q in j != i && p != q && p.hasPrefix(q.hasSuffix("/") ? q : q + "/") }
+                && paths.firstIndex(of: p) == i
+        }.map(\.element)
     }
 
     private static func expand(_ raw: String, home: URL) -> URL {
@@ -123,29 +154,54 @@ public struct ScreenshotDetector {
 
     // MARK: Verdicts
 
-    public mutating func verdict(for e: FileEvent) -> FileVerdict {
+    /// A file settles when two sightings at least `settleDelay` apart agree on
+    /// a non-zero size. Sightings closer together (one FSEvents batch, two
+    /// overlapping re-checks) keep the first sighting's time, so a writer
+    /// pausing between chunks is never mistaken for a finished file.
+    public mutating func verdict(for e: FileEvent, at now: Date) -> FileVerdict {
         guard Self.imageExtensions.contains(e.url.pathExtension.lowercased()) else { return .ignore }
         guard e.createdAt >= startedAt else { return .ignore }
-        guard !accepted.contains(e.url) else { return .ignore }
-        let previous = lastSize[e.url]
-        lastSize[e.url] = e.byteSize
-        guard let previous, previous == e.byteSize, e.byteSize > 0 else { return .settle }
-        let qualifies = e.isTaggedScreenCapture || e.root.dedicated
-            || (e.root.source == .native && Self.matchesNativeName(e.url.lastPathComponent))
+        guard !accepted.contains(e.url), !givenUp.contains(e.url) else { return .ignore }
+        let n = (attempts[e.url] ?? 0) + 1
+        attempts[e.url] = n
+        let settled: Bool
+        if let prev = lastSighting[e.url], prev.size == e.byteSize, e.byteSize > 0 {
+            settled = now.timeIntervalSince(prev.at) >= Self.settleDelay - 0.001
+        } else {
+            lastSighting[e.url] = (e.byteSize, now)
+            settled = false
+        }
+        guard settled else {
+            guard n < Self.maxSettleAttempts else { forget(e.url); givenUp.insert(e.url); return .ignore }
+            return .settle
+        }
+        forget(e.url)
+        let name = e.url.lastPathComponent
+        let qualifies = e.isTaggedScreenCapture || e.root.dedicated || Self.matchesNativeName(name)
         guard qualifies else { return .ignore }
         accepted.insert(e.url)
-        lastSize.removeValue(forKey: e.url)
-        return .accept(e.root.source)
+        return .accept(name.hasPrefix("CleanShot ") ? .cleanShot : e.root.source)
+    }
+
+    private mutating func forget(_ url: URL) {
+        lastSighting.removeValue(forKey: url)
+        attempts.removeValue(forKey: url)
     }
 
     // MARK: Dedupe
 
-    /// True when a screenshot of this pixel size was seen within
-    /// `dedupeWindow`. Otherwise records this one and returns false.
-    public mutating func isDuplicate(width: Int, height: Int, at now: Date) -> Bool {
+    /// The same shot arriving through the other channel (CleanShot writes the
+    /// file and, with copy-after-capture, the pasteboard): returns the id of
+    /// the oldest same-size clip from the *other* channel within
+    /// `dedupeWindow` and consumes it. Otherwise records this clip and returns
+    /// nil. Same-channel repeats never match: two real shots of the same
+    /// size (full screen, the same window) both land.
+    public mutating func counterpart(width: Int, height: Int, channel: CaptureChannel, clipID: UUID, at now: Date) -> UUID? {
         recent.removeAll { now.timeIntervalSince($0.at) > Self.dedupeWindow }
-        if recent.contains(where: { $0.width == width && $0.height == height }) { return true }
-        recent.append((width, height, now))
-        return false
+        if let i = recent.firstIndex(where: { $0.width == width && $0.height == height && $0.channel != channel }) {
+            return recent.remove(at: i).clipID
+        }
+        recent.append((width, height, channel, clipID, now))
+        return nil
     }
 }

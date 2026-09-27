@@ -3,11 +3,12 @@ import AppKit
 import ImperumCore
 
 /// Owns the folder watcher and the pure detector. Turns new screenshot files
-/// into `CapturedClip`s for the controller, and answers the pasteboard path's
-/// "is this a duplicate of a screenshot we just imported?" question so a
-/// CleanShot save+copy yields one clip.
+/// into `CapturedClip`s for the controller, and pairs a CleanShot save with
+/// its clipboard copy so the pair yields one clip.
 final class ScreenshotImporter {
-    var onCaptured: ((CapturedClip) -> Void)?
+    /// A new screenshot clip, and the id of the clipboard clip it supersedes
+    /// (the same shot, copied), which the controller removes.
+    var onCaptured: ((CapturedClip, UUID?) -> Void)?
     var onStatusChanged: (() -> Void)?
     /// Human-readable state for the settings caption.
     private(set) var status = "" { didSet { if status != oldValue { onStatusChanged?() } } }
@@ -17,12 +18,18 @@ final class ScreenshotImporter {
     private var roots: [ScreenshotRoot] = []
     private var enabled = false
     private var streamFailed = false
+    /// Paths with a settle re-check already scheduled: FSEvents only arms a
+    /// check, the timer alone samples, so bursts never shortcut the settle.
+    private var pending: Set<String> = []
+
+    /// True while file capture is on; the pasteboard path pairs only then.
+    var isActive: Bool { enabled }
 
     // MARK: Lifecycle
 
     func update(enabled: Bool) {
         self.enabled = enabled
-        if enabled { refreshRoots() } else { watcher.stop(); roots = []; status = "" }
+        if enabled { refreshRoots() } else { watcher.stop(); roots = []; pending.removeAll(); status = "" }
     }
 
     /// Re-reads both apps' defaults, drops roots that don't exist, and
@@ -35,12 +42,15 @@ final class ScreenshotImporter {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let all = ScreenshotDetector.roots(nativeLocation: native, cleanShotExportPath: export, home: home)
         var isDir: ObjCBool = false
+        // FSEvents reports real paths, so match against roots with symlinks resolved.
         let present = all.filter { FileManager.default.fileExists(atPath: $0.url.path, isDirectory: &isDir) && isDir.boolValue }
+            .map { ScreenshotRoot(url: $0.url.resolvingSymlinksInPath(), source: $0.source, dedicated: $0.dedicated) }
         let nativeMissing = all.contains { $0.source == .native } && !present.contains { $0.source == .native }
         if present != roots || !watcher.isRunning {
             roots = present
             detector = ScreenshotDetector(startedAt: Date())
-            streamFailed = !present.isEmpty && !watcher.start(paths: present.map(\.url.path))
+            pending.removeAll()
+            streamFailed = !present.isEmpty && !watcher.start(paths: ScreenshotDetector.streamPaths(present))
         }
         status = Self.statusText(watched: present, nativeMissing: nativeMissing, streamFailed: streamFailed)
     }
@@ -55,24 +65,33 @@ final class ScreenshotImporter {
         return parts.joined(separator: ". ")
     }
 
-    // MARK: Pasteboard-side dedupe
+    // MARK: Pasteboard side
 
-    func isDuplicate(width: Int, height: Int) -> Bool {
-        detector.isDuplicate(width: width, height: height, at: Date())
+    /// For an image the pasteboard just produced: the id of the saved
+    /// screenshot it duplicates (drop the copy), else nil (it is recorded so
+    /// a file arriving next can supersede it).
+    func pasteboardCounterpart(width: Int, height: Int, clipID: UUID) -> UUID? {
+        detector.counterpart(width: width, height: height, channel: .pasteboard, clipID: clipID, at: Date())
     }
 
     // MARK: File events
 
     private func handle(path: String, removed: Bool) {
-        guard enabled, !removed else { return }
+        guard enabled, !removed, !pending.contains(path) else { return }
+        sample(path)
+    }
+
+    private func sample(_ path: String) {
+        guard enabled, let root = ScreenshotDetector.root(for: path, in: roots) else { return }
         let url = URL(fileURLWithPath: path)
-        guard let root = roots.first(where: { url.path.hasPrefix($0.url.path) }) else { return }
-        guard let event = Self.fileEvent(url: url, root: root) else { return }
-        switch detector.verdict(for: event) {
+        guard let event = Self.fileEvent(url: url, root: root) else { return }   // gone: stop
+        switch detector.verdict(for: event, at: Date()) {
         case .ignore: return
         case .settle:
+            pending.insert(path)
             DispatchQueue.main.asyncAfter(deadline: .now() + ScreenshotDetector.settleDelay) { [weak self] in
-                self?.handle(path: path, removed: false)
+                guard let self, self.pending.remove(path) != nil else { return }
+                self.sample(path)
             }
         case .accept(let source):
             importFile(url, source: source)
@@ -107,11 +126,11 @@ final class ScreenshotImporter {
             NSLog("Imperum Tool screenshots: could not decode \(url.lastPathComponent)")
             return
         }
-        guard !detector.isDuplicate(width: img.width, height: img.height, at: Date()) else { return }
         let id = ClipCapture.contentID(img.data)
         let clip = Clip(id: id, kind: .screenshot, capturedAt: Date(), sourceAppName: source.title, sourceBundleID: source.bundleID,
                         title: ClipClassifier.title(screenshotWidth: img.width, height: img.height),
                         payload: .blob(id: id, utType: "public.png", width: img.width, height: img.height))
-        onCaptured?(CapturedClip(clip: clip, blobData: img.data))
+        let supersedes = detector.counterpart(width: img.width, height: img.height, channel: .file, clipID: id, at: Date())
+        onCaptured?(CapturedClip(clip: clip, blobData: img.data), supersedes)
     }
 }

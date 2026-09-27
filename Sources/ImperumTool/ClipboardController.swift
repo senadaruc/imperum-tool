@@ -92,7 +92,12 @@ final class ClipboardController: ObservableObject {
         model.onPaste = { [weak self] clip in self?.paste(clip) }
         model.onClose = { [weak self] in self?.panel.hide() }
         tap.onOpenPanel = { [weak self] in self?.openCopyStack(anchor: .mouseScreen) }
-        screenshots.onCaptured = { [weak self] captured in self?.insertCaptured(captured) }
+        screenshots.onCaptured = { [weak self] captured, supersedes in
+            // The same shot was copied first (CleanShot copy-after-capture):
+            // the saved file wins, as a properly attributed Screenshot clip.
+            if let old = supersedes, old != captured.clip.id { self?.store.delete(old) }
+            self?.insertCaptured(captured)
+        }
         screenshots.onStatusChanged = { [weak self] in
             guard let self else { return }
             self.screenshotWatchStatus = self.screenshots.status
@@ -205,8 +210,13 @@ final class ClipboardController: ObservableObject {
         // this content read (e.g. another app copied right behind us). Discard a
         // stale capture and let the next poll pick up the newer change.
         guard reader.changeCount == count else { return }
-        if captured.clip.kind == .screenshot, case .blob(_, _, let w, let h) = captured.clip.payload,
-           screenshots.isDuplicate(width: w, height: h) { return }
+        // Pair a copied image with a just-saved screenshot of the same size
+        // (CleanShot save + copy), whatever types CleanShot put on the
+        // pasteboard. Only while file capture is on: otherwise there is no
+        // second channel, and every copy is a real, separate shot.
+        if screenshots.isActive, captured.clip.kind == .image || captured.clip.kind == .screenshot,
+           case .blob(_, _, let w, let h) = captured.clip.payload,
+           screenshots.pasteboardCounterpart(width: w, height: h, clipID: captured.clip.id) != nil { return }
         insertCaptured(captured)
     }
 

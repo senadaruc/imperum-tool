@@ -46,8 +46,20 @@ public final class ClipArchive {
     public func loadIndex() throws -> [Clip] {
         guard fm.fileExists(atPath: indexURL.path) else { return [] }
         let plain = try readSealed(indexURL)
-        do { return try JSONDecoder().decode([Clip].self, from: plain) } catch { throw ClipArchiveError.corrupt }
+        // Per-element: an index written by a newer build may hold a clip kind
+        // this build doesn't know. Drop that clip, keep the rest, rather than
+        // treating the whole archive as corrupt (which wipes it).
+        do { return try JSONDecoder().decode([LossyClip].self, from: plain).compactMap(\.clip) } catch { throw ClipArchiveError.corrupt }
     }
+
+    private struct LossyClip: Decodable {
+        let clip: Clip?
+        init(from decoder: Decoder) throws { clip = try? Clip(from: decoder) }
+    }
+
+    // Test seams for the sealed index (internal: reachable only via @testable).
+    func readSealedForTesting() throws -> Data { try readSealed(indexURL) }
+    func writeSealedForTesting(_ plain: Data) throws { try writeSealed(plain, to: indexURL) }
 
     // MARK: Blobs
 

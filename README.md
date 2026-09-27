@@ -68,6 +68,11 @@ never moves or deletes the files, and it never imports shots taken before
 it was running. Settings › Clipboard › "Capture screenshots saved to disk"
 turns the folder watching off; copied screenshots are captured regardless.
 
+Upgrading: builds from before the Screenshots category treat a screenshot
+clip in the saved history as corruption and start over with an empty
+history. Once this version has run, don't launch an older build. From this
+version on, a clip type the running build doesn't know is skipped instead.
+
 Privacy: nothing leaves this Mac. Anything a password manager marks concealed
 or transient is never captured, apps on the exclusion list are ignored, and
 the history lives in `~/Library/Application Support/Imperum Tool/Clipboard/`
@@ -174,5 +179,5 @@ can't take arguments or write files.
 
 ## Develop / test
 
-    swift test                 # ImperumCore logic + samplers + tap detector + CopyStackKit (461 tests)
+    swift test                 # ImperumCore logic + samplers + tap detector + CopyStackKit (466 tests)
     swift run ImperumTool        # run from source
