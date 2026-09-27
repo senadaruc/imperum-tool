@@ -45,6 +45,8 @@ public struct ClipboardSettings: Codable, Equatable {
     public var allowCLI = true
     /// Passed to the cmux CLI as `CMUX_SOCKET_PASSWORD` when non-empty.
     public var cmuxSocketPassword = ""
+    /// Key map for the panel and its global hotkey (see `PanelShortcuts`).
+    public var shortcuts: PanelShortcuts = .defaults
 
     public init() {}
 
@@ -56,7 +58,7 @@ public struct ClipboardSettings: Codable, Equatable {
     public var doubleTapWindow: TimeInterval { TimeInterval(doubleTapMs) / 1000 }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, trigger, doubleTapMs, maxStack, retentionDays, categoryLimits, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, excludedHosts, paused, terminalPicker, allowCLI, cmuxSocketPassword
+        case enabled, trigger, doubleTapMs, maxStack, retentionDays, categoryLimits, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, excludedHosts, paused, terminalPicker, allowCLI, cmuxSocketPassword, shortcuts
     }
 
     /// Forward-compatible: keys absent from older saved JSON keep their defaults.
@@ -78,6 +80,10 @@ public struct ClipboardSettings: Codable, Equatable {
         s.terminalPicker = try c.decodeIfPresent(Bool.self, forKey: .terminalPicker) ?? s.terminalPicker
         s.allowCLI = try c.decodeIfPresent(Bool.self, forKey: .allowCLI) ?? s.allowCLI
         s.cmuxSocketPassword = try c.decodeIfPresent(String.self, forKey: .cmuxSocketPassword) ?? s.cmuxSocketPassword
+        // PanelShortcuts decodes leniently on its own; this guards the case
+        // where the value isn't even an object.
+        let decodedShortcuts: PanelShortcuts? = (try? c.decodeIfPresent(PanelShortcuts.self, forKey: .shortcuts)) ?? nil
+        s.shortcuts = decodedShortcuts ?? .defaults
         self = s
     }
 }

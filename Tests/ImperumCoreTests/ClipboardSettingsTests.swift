@@ -102,4 +102,30 @@ final class ClipboardSettingsTests: XCTestCase {
         let hand = #"{"categoryLimits":{"videos":1,"all":7}}"#.data(using: .utf8)!
         XCTAssertEqual(try JSONDecoder().decode(ClipboardSettings.self, from: hand).categoryLimits, ["videos": 10])
     }
+
+    // MARK: Shortcuts
+
+    func testShortcutsDefaultAndDecodeWhenAbsent() throws {
+        XCTAssertEqual(ClipboardSettings().shortcuts, .defaults)
+        let s = try JSONDecoder().decode(ClipboardSettings.self, from: #"{"maxStack":99}"#.data(using: .utf8)!)
+        XCTAssertEqual(s.shortcuts, .defaults)
+    }
+
+    func testCorruptShortcutsLeaveOtherSettingsIntact() throws {
+        let json = #"{"maxStack":99,"shortcuts":"nonsense","categoryLimits":{"text":40}}"#.data(using: .utf8)!
+        let s = try JSONDecoder().decode(ClipboardSettings.self, from: json)
+        XCTAssertEqual(s.maxStack, 99)
+        XCTAssertEqual(s.categoryLimits, ["text": 40])
+        XCTAssertEqual(s.shortcuts, .defaults)
+    }
+
+    func testShortcutsRoundTripThroughStore() {
+        let d = isolatedDefaults()
+        let store = ClipboardSettingsStore(defaults: d)
+        store.settings.shortcuts.set(KeyCombo(keyCode: 2, modifiers: PanelShortcuts.command, display: "⌘D"), for: .delete)
+        store.settings.shortcuts.quickPickModifiers = PanelShortcuts.command | PanelShortcuts.option
+        let again = ClipboardSettingsStore(defaults: d)
+        XCTAssertEqual(again.settings.shortcuts.combo(for: .delete), KeyCombo(keyCode: 2, modifiers: PanelShortcuts.command, display: "⌘D"))
+        XCTAssertEqual(again.settings.shortcuts.quickPickDisplay, "⌥⌘1–9")
+    }
 }
