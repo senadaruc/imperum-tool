@@ -9,6 +9,9 @@ private final class ReadFlag { var read = false }
 private struct FakePasteboard: PasteboardReading {
     var changeCount = 1
     var types: [String] = ["public.utf8-plain-text"]
+    /// Per-item types. Defaults to one item carrying `types`.
+    var items: [[String]]? = nil
+    var itemTypes: [[String]] { items ?? [types] }
     var files: [URL] = []
     var image: PasteboardImage? = nil
     var text: String? = nil
@@ -220,5 +223,27 @@ final class ClipCaptureTests: XCTestCase {
         XCTAssertNil(ClipCapture.capture(
             from: FakePasteboard(text: "secret", failOnRead: true),
             context: ctx(paused: true)))
+    }
+
+    // MARK: Screenshots
+
+    func testOnlyASinglePNGItemIsAScreenshot() {
+        let png = PasteboardImage(data: Data([9, 9, 9]), width: 4, height: 3)
+        let shot = ClipCapture.capture(from: FakePasteboard(types: ["public.png"], image: png, text: nil), context: ctx())!
+        XCTAssertEqual(shot.clip.kind, .screenshot)
+        XCTAssertEqual(shot.clip.title, "Screenshot 4×3")
+        XCTAssertEqual(shot.clip.sourceAppName, "Screenshot")
+        XCTAssertEqual(shot.clip.sourceBundleID, "com.apple.screencapture")
+        XCTAssertEqual(shot.blobData, png.data)
+
+        let browser = ClipCapture.capture(from: FakePasteboard(types: ["public.png", "public.tiff"], image: png, text: nil), context: ctx())!
+        XCTAssertEqual(browser.clip.kind, .image, "extra types mean a browser/Preview copy")
+        let twoItems = ClipCapture.capture(from: FakePasteboard(types: ["public.png"], items: [["public.png"], ["public.png"]], image: png, text: nil), context: ctx())!
+        XCTAssertEqual(twoItems.clip.kind, .image, "two items are never a screenshot")
+        let withText = ClipCapture.capture(from: FakePasteboard(types: ["public.png", "public.utf8-plain-text"], image: png, text: "hello"), context: ctx())!
+        XCTAssertEqual(withText.clip.kind, .text, "text still wins")
+        XCTAssertTrue(ClipCapture.isScreenshotSignature(itemTypes: [["public.png"]]))
+        XCTAssertFalse(ClipCapture.isScreenshotSignature(itemTypes: [["public.png", "public.tiff"]]))
+        XCTAssertFalse(ClipCapture.isScreenshotSignature(itemTypes: []))
     }
 }

@@ -8,6 +8,9 @@ import Foundation
 public protocol PasteboardReading {
     var changeCount: Int { get }
     var types: [String] { get }
+    /// The types of each pasteboard item, in order (`types` is the flattened
+    /// union). A native screenshot copy is exactly one item, `["public.png"]`.
+    var itemTypes: [[String]] { get }
     func fileURLs() -> [URL]
     func imagePNG() -> PasteboardImage?
     func string() -> String?
@@ -90,7 +93,7 @@ public enum ClipCapture {
     /// Derives a stable id from content bytes, so identical images dedupe
     /// the same way identical text does (`ClipContentKey` compares the
     /// `.blob` payload, id included).
-    private static func contentID(_ data: Data) -> UUID {
+    public static func contentID(_ data: Data) -> UUID {
         let digest = SHA256.hash(data: data)
         let bytes = Array(digest.prefix(16))
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -128,6 +131,15 @@ public enum ClipCapture {
     /// browsers represent "Copy Image", where the string is just the
     /// image's URL, not real text content. With no string at all
     /// (screenshots, Preview), the image still wins as before.
+    /// What `screencapture -c` (⌃⇧⌘3/4) puts on the pasteboard: one item whose
+    /// only type is PNG. Browsers, Preview and Finder always add TIFF, HTML,
+    /// URL or file-URL types, so this shape is a usable screenshot signature.
+    public static func isScreenshotSignature(itemTypes: [[String]]) -> Bool {
+        itemTypes.count == 1 && itemTypes[0] == ["public.png"]
+    }
+
+    public static let nativeScreenshotSource = (name: "Screenshot", bundle: "com.apple.screencapture")
+
     public static func capture(from pb: PasteboardReading, context: CaptureContext, now: Date = Date(),
                                 excludedHosts: [String] = [], frontPageHost: () -> String? = { nil }) -> CapturedClip? {
         if CaptureVeto.reason(types: pb.types, changeCount: pb.changeCount, context: context,
@@ -149,9 +161,15 @@ public enum ClipCapture {
 
         if !textWinsOverImage, let img = pb.imagePNG() {
             let id = contentID(img.data)
+            let payload = ClipPayload.blob(id: id, utType: "public.png", width: img.width, height: img.height)
+            if isScreenshotSignature(itemTypes: pb.itemTypes) {
+                let clip = Clip(id: id, kind: .screenshot, capturedAt: now,
+                                sourceAppName: nativeScreenshotSource.name, sourceBundleID: nativeScreenshotSource.bundle,
+                                title: ClipClassifier.title(screenshotWidth: img.width, height: img.height), payload: payload)
+                return CapturedClip(clip: clip, blobData: img.data)
+            }
             let clip = Clip(id: id, kind: .image, capturedAt: now, sourceAppName: src.name, sourceBundleID: src.bundle,
-                            title: ClipClassifier.title(imageWidth: img.width, height: img.height),
-                            payload: .blob(id: id, utType: "public.png", width: img.width, height: img.height))
+                            title: ClipClassifier.title(imageWidth: img.width, height: img.height), payload: payload)
             return CapturedClip(clip: clip, blobData: img.data)
         }
         guard let text, let kind = textKind else { return nil }

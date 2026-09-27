@@ -10,6 +10,7 @@ final class NSPasteboardReader: PasteboardReading {
 
     var changeCount: Int { pb.changeCount }
     var types: [String] { (pb.types ?? []).map(\.rawValue) }
+    var itemTypes: [[String]] { (pb.pasteboardItems ?? []).map { $0.types.map(\.rawValue) } }
 
     func fileURLs() -> [URL] {
         (pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
