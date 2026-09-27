@@ -138,7 +138,7 @@ public final class RequestHandler {
                 return .files(urls.map(\.path))
             }
             return .files([])
-        case .image:
+        case .image, .screenshot:
             if case .blob(_, _, let width, let height) = clip.payload {
                 return .image(width: width, height: height)
             }

@@ -186,4 +186,13 @@ final class ClipStoreTests: XCTestCase {
         XCTAssertEqual(s.clips.map(\.title), ["img2"])
         XCTAssertEqual(Set(dropped), Set([ids[0], ids[1]]))
     }
+
+    func testScreenshotsCapDropsOnlyScreenshots() {
+        let s = ClipStore()
+        let l = ClipLimits(maxStack: 100, retentionDays: 30, perCategory: [.screenshots: 1])
+        s.insert(clip(.screenshot, "s1", at: 1), limits: l, now: base)
+        s.insert(clip(.image, "i1", at: 2), limits: l, now: base)
+        s.insert(clip(.screenshot, "s2", at: 3), limits: l, now: base)
+        XCTAssertEqual(s.clips.map(\.title), ["s2", "i1"])
+    }
 }

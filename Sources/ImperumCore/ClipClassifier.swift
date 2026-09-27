@@ -79,6 +79,7 @@ public enum ClipClassifier {
     }
 
     public static func title(imageWidth w: Int, height h: Int) -> String { "Image \(w)×\(h)" }
+    public static func title(screenshotWidth w: Int, height h: Int) -> String { "Screenshot \(w)×\(h)" }
 
     // MARK: helpers
 

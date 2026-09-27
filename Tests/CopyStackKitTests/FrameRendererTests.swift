@@ -55,7 +55,7 @@ final class FrameRendererTests: XCTestCase {
         XCTAssertTrue(lines[0].hasSuffix("4 clips"))
 
         // Row 2: categories, [All] bracketed as active (noColor).
-        XCTAssertTrue(lines[1].hasPrefix("[All]  Text  Links  Emails  Images  Videos  Files"))
+        XCTAssertTrue(lines[1].hasPrefix("[All]  Text  Links  Emails  Images  Screenshots  Videos  Files"))
 
         // Row 3: blank separator.
         XCTAssertEqual(lines[2], "")

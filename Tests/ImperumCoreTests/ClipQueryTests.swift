@@ -18,7 +18,8 @@ final class ClipQueryTests: XCTestCase {
         XCTAssertNil(ClipCategory.all.kind)
         XCTAssertEqual(ClipCategory.links.kind, .link)
         XCTAssertEqual(ClipCategory.emails.kind, .email)
-        XCTAssertEqual(ClipCategory.allCases.map(\.title), ["All", "Text", "Links", "Emails", "Images", "Videos", "Files"])
+        XCTAssertEqual(ClipCategory.allCases.map(\.title), ["All", "Text", "Links", "Emails", "Images", "Screenshots", "Videos", "Files"])
+        XCTAssertEqual(ClipCategory.screenshots.kind, .screenshot)
     }
 
     /// Round 10: the Colors category is gone; a legacy `.color` clip (from an
@@ -85,8 +86,20 @@ final class ClipQueryTests: XCTestCase {
         XCTAssertEqual(ClipCategory(kind: .link), .links)
         XCTAssertEqual(ClipCategory(kind: .email), .emails)
         XCTAssertEqual(ClipCategory(kind: .image), .images)
+        XCTAssertEqual(ClipCategory(kind: .screenshot), .screenshots)
         XCTAssertEqual(ClipCategory(kind: .video), .videos)
         XCTAssertEqual(ClipCategory(kind: .file), .files)
         for k in ClipKind.allCases { XCTAssertNotEqual(ClipCategory(kind: k), .all) }
+    }
+
+    func testScreenshotsCategoryFiltersOnlyScreenshots() {
+        let shot = Clip(kind: .screenshot, sourceAppName: "Screenshot", sourceBundleID: "com.apple.screencapture", title: "Screenshot 2×2",
+                        payload: .blob(id: UUID(), utType: "public.png", width: 2, height: 2))
+        let img = Clip(kind: .image, sourceAppName: "Safari", sourceBundleID: nil, title: "Image 2×2",
+                       payload: .blob(id: UUID(), utType: "public.png", width: 2, height: 2))
+        XCTAssertEqual(ClipFilter.apply([shot, img], category: .screenshots, query: "").map(\.id), [shot.id])
+        XCTAssertEqual(ClipFilter.apply([shot, img], category: .images, query: "").map(\.id), [img.id])
+        XCTAssertEqual(ClipFilter.apply([shot, img], category: .all, query: "").count, 2)
+        XCTAssertEqual(ClipClassifier.title(screenshotWidth: 1280, height: 800), "Screenshot 1280×800")
     }
 }

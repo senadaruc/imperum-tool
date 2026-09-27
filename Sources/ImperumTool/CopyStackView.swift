@@ -140,7 +140,7 @@ private struct ClipRow: View {
 
     @ViewBuilder private var leading: some View {
         switch clip.kind {
-        case .image:
+        case .image, .screenshot:
             if let t = thumbnail {
                 Image(nsImage: t).resizable().aspectRatio(contentMode: .fill).frame(width: 32, height: 32)
                     .clipShape(RoundedRectangle(cornerRadius: 6))

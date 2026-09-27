@@ -79,7 +79,7 @@ public struct ClipSummary: Codable, Equatable, Identifiable {
                 preview = ""
             }
             image = nil
-        case .image:
+        case .image, .screenshot:
             preview = ""
             fileNames = nil
             if case .blob(_, _, let width, let height) = clip.payload {
@@ -98,7 +98,7 @@ public struct ClipSummary: Codable, Equatable, Identifiable {
             payload = .text(preview)
         case .file, .video:
             payload = .fileURLs((fileNames ?? []).map { URL(fileURLWithPath: "/" + $0) })
-        case .image:
+        case .image, .screenshot:
             payload = .blob(id: id, utType: "public.png", width: image?.width ?? 0, height: image?.height ?? 0)
         }
         return Clip(

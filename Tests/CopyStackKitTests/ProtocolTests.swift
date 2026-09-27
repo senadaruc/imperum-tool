@@ -283,4 +283,17 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(lines, [])
         XCTAssertTrue(framer.overflowed)
     }
+
+    func testScreenshotSummaryRoundTripsLikeAnImage() throws {
+        let blobID = UUID()
+        let clip = Clip(kind: .screenshot, sourceAppName: "CleanShot X", sourceBundleID: "pl.maketheweb.cleanshotx",
+                        title: "Screenshot 640×480", payload: .blob(id: blobID, utType: "public.png", width: 640, height: 480))
+        let summary = ClipSummary(clip: clip)
+        XCTAssertEqual(summary.kind, .screenshot)
+        XCTAssertEqual(summary.image, ClipSummary.ImageInfo(width: 640, height: 480))
+        let data = try JSONEncoder().encode(summary)
+        let back = try JSONDecoder().decode(ClipSummary.self, from: data)
+        XCTAssertEqual(back.asClip().kind, .screenshot)
+        XCTAssertEqual(back.asClip().payload, .blob(id: clip.id, utType: "public.png", width: 640, height: 480))
+    }
 }

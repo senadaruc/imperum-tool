@@ -8,6 +8,9 @@ public enum ClipKind: String, Codable, CaseIterable, Hashable {
     /// kind so old colour clips stay reachable in the panel.
     case color
     case image, video, file
+    /// A screenshot (native macOS or CleanShot X), copied or saved to disk.
+    /// Same `.blob` payload as `.image`; only the category differs.
+    case screenshot
 }
 
 /// What a clip carries. Text-family kinds (text/link/email/color) store the

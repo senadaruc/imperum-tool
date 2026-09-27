@@ -10,6 +10,8 @@ final class ClipTests: XCTestCase {
                  payload: .fileURLs([URL(fileURLWithPath: "/tmp/a.txt")])),
             Clip(kind: .image, sourceAppName: "Preview", sourceBundleID: nil, title: "Image 2×2",
                  payload: .blob(id: id, utType: "public.png", width: 2, height: 2)),
+            Clip(kind: .screenshot, sourceAppName: "CleanShot X", sourceBundleID: "pl.maketheweb.cleanshotx", title: "Screenshot 2×2",
+                 payload: .blob(id: id, utType: "public.png", width: 2, height: 2)),
         ]
         let data = try JSONEncoder().encode(clips)
         let back = try JSONDecoder().decode([Clip].self, from: data)

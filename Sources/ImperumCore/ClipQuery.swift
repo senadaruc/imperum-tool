@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ClipCategory: String, CaseIterable, Equatable {
-    case all, text, links, emails, images, videos, files
+    case all, text, links, emails, images, screenshots, videos, files
 
     public var kind: ClipKind? {
         switch self {
@@ -10,6 +10,7 @@ public enum ClipCategory: String, CaseIterable, Equatable {
         case .links: return .link
         case .emails: return .email
         case .images: return .image
+        case .screenshots: return .screenshot
         case .videos: return .video
         case .files: return .file
         }
@@ -22,6 +23,7 @@ public enum ClipCategory: String, CaseIterable, Equatable {
         case .links: return "Links"
         case .emails: return "Emails"
         case .images: return "Images"
+        case .screenshots: return "Screenshots"
         case .videos: return "Videos"
         case .files: return "Files"
         }
@@ -35,6 +37,7 @@ public enum ClipCategory: String, CaseIterable, Equatable {
         case .link: self = .links
         case .email: self = .emails
         case .image: self = .images
+        case .screenshot: self = .screenshots
         case .video: self = .videos
         case .file: self = .files
         }

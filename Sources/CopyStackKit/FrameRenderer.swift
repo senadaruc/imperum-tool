@@ -180,6 +180,7 @@ public enum FrameRenderer {
         case .link: return "↗"
         case .email: return "@"
         case .image: return "▣"
+        case .screenshot: return "▣"
         case .video: return "▶"
         case .file: return "▤"
         }
