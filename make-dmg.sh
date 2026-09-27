@@ -7,7 +7,8 @@ cd "$(dirname "$0")"
 
 ID="Developer ID Application: Imperum B.V. (9TZGSR8224)"
 APP="build/Imperum Tool.app"
-DMG="build/ImperumTool.dmg"
+VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)
+DMG="build/ImperumTool-$VERSION.dmg"
 STAGING="build/dmg-staging"
 KEY="$HOME/.secrets/imperum/AuthKey_UB3PR8KXU8.p8"
 KEY_ID="UB3PR8KXU8"
