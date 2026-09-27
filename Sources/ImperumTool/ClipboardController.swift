@@ -14,7 +14,10 @@ import ImperumCore
 /// poll `Timer` runs on the main run loop, the settings sink receives on
 /// `DispatchQueue.main`, and `tap.onOpenPanel` is already dispatched to main
 /// by the tap.
-final class ClipboardController {
+final class ClipboardController: ObservableObject {
+    /// Why the global hotkey could not be registered (e.g. another app owns
+    /// it), for the settings tab. nil when registered or not in use.
+    @Published private(set) var hotkeyError: String?
     private let settings: ClipboardSettingsStore
     private let store = ClipStore()
     private let keyProvider = KeychainArchiveKey()
@@ -62,7 +65,7 @@ final class ClipboardController {
     /// Last settings values `apply(_:)` actually acted on, so repeated calls
     /// (the settings sink fires on every edit) don't restart the tap or wipe
     /// the archive redundantly.
-    private var lastApplied: (enabled: Bool, trigger: ClipboardTrigger, clearOnQuit: Bool)?
+    private var lastApplied: (enabled: Bool, trigger: ClipboardTrigger, hotkey: KeyCombo, clearOnQuit: Bool)?
 
     /// True when `tap.start` returned false because Accessibility isn't
     /// granted yet. Cleared, and the tap restarted, once the app becomes
@@ -134,10 +137,11 @@ final class ClipboardController {
         statusItem.setVisible(s.enabled && s.showBadge)
         tap.window = s.doubleTapWindow
 
-        let triggerChanged = lastApplied.map { $0.enabled != s.enabled || $0.trigger != s.trigger } ?? true
+        let hotkey = s.shortcuts.combo(for: .openPanel)
+        let triggerChanged = lastApplied.map { $0.enabled != s.enabled || $0.trigger != s.trigger || $0.hotkey != hotkey } ?? true
         if triggerChanged {
             if s.enabled {
-                let ok = tap.start(doubleTap: s.trigger.usesDoubleTap, hotkey: s.trigger.usesHotkey)
+                let ok = tap.start(doubleTap: s.trigger.usesDoubleTap, hotkey: s.trigger.usesHotkey ? hotkey : nil)
                 tapNeedsAccessibility = !ok
                 statusItem.needsAccessibility = !ok
             } else {
@@ -145,6 +149,7 @@ final class ClipboardController {
                 tapNeedsAccessibility = false
                 statusItem.needsAccessibility = false
             }
+            hotkeyError = tap.hotkeyError
         }
         if s.enabled { startPolling() } else { stopPolling(); panel.hide() }
 
@@ -152,7 +157,7 @@ final class ClipboardController {
         if clearOnQuitTurnedOn { try? archive?.deleteAll() }   // session-only from now on: nothing left on disk
 
         store.enforce(limits: s.limits)
-        lastApplied = (s.enabled, s.trigger, s.clearOnQuit)
+        lastApplied = (s.enabled, s.trigger, hotkey, s.clearOnQuit)
 
         if s.enabled && s.allowCLI {
             if !copyStackServer.isRunning { copyStackServer.start() }

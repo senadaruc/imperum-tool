@@ -3,7 +3,8 @@ import AppKit
 import Carbon.HIToolbox
 import ImperumCore
 
-/// Owns the double-tap ⌘V event tap and/or the ⌘⇧V Carbon hotkey. Every key
+/// Owns the double-tap ⌘V event tap and/or the user's global hotkey
+/// (`PanelShortcuts`, default ⌘⇧V) registered through Carbon. Every key
 /// this app posts carries `marker` in the event's user-data so the tap passes
 /// it through untouched (that includes the paste we post after a pick).
 final class CmdVTap {
@@ -12,6 +13,10 @@ final class CmdVTap {
 
     var onOpenPanel: (() -> Void)?
     var window: TimeInterval = 0.3 { didSet { detector.window = window } }
+
+    /// Why the last hotkey registration failed, nil when it succeeded or
+    /// no hotkey was requested. Read by the controller after `start`.
+    private(set) var hotkeyError: String?
 
     private var detector = DoubleTapDetector()
     private var tap: CFMachPort?
@@ -23,17 +28,19 @@ final class CmdVTap {
     // MARK: Lifecycle
 
     /// Returns false when the event tap was requested but could not be created
-    /// (no Accessibility trust). The hotkey never needs Accessibility.
+    /// (no Accessibility trust). The hotkey never needs Accessibility; if it
+    /// can't be registered, `hotkeyError` says why and the tap still runs.
     @discardableResult
-    func start(doubleTap: Bool, hotkey: Bool) -> Bool {
+    func start(doubleTap: Bool, hotkey: KeyCombo?) -> Bool {
         stop()
         var ok = true
         if doubleTap { ok = installTap() }
-        if hotkey { installHotKey() }
+        if let hotkey { installHotKey(hotkey) }
         return ok
     }
 
     func stop() {
+        hotkeyError = nil
         holdTimer?.cancel(); holdTimer = nil
         detector = DoubleTapDetector(window: window)
         if let src = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes); runLoopSource = nil }
@@ -128,9 +135,19 @@ final class CmdVTap {
         DispatchQueue.main.asyncAfter(deadline: .now() + window, execute: w)
     }
 
-    // MARK: Carbon hotkey (⌘⇧V, matching CopyCat)
+    // MARK: Carbon hotkey
 
-    private func installHotKey() {
+    private static func carbonModifiers(_ raw: UInt) -> UInt32 {
+        let m = PanelShortcuts.normalize(raw)
+        var out: UInt32 = 0
+        if m & PanelShortcuts.command != 0 { out |= UInt32(cmdKey) }
+        if m & PanelShortcuts.shift != 0 { out |= UInt32(shiftKey) }
+        if m & PanelShortcuts.option != 0 { out |= UInt32(optionKey) }
+        if m & PanelShortcuts.control != 0 { out |= UInt32(controlKey) }
+        return out
+    }
+
+    private func installHotKey(_ combo: KeyCombo) {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         InstallEventHandler(GetApplicationEventTarget(), { _, _, refcon in
@@ -140,6 +157,9 @@ final class CmdVTap {
             return noErr
         }, 1, &spec, refcon, &hotKeyHandler)
         let id = EventHotKeyID(signature: OSType(0x494D5052) /* 'IMPR' */, id: 1)
-        RegisterEventHotKey(UInt32(Self.vKey), UInt32(cmdKey | shiftKey), id, GetApplicationEventTarget(), 0, &hotKeyRef)
+        let status = RegisterEventHotKey(UInt32(combo.keyCode), Self.carbonModifiers(combo.modifiers), id,
+                                         GetApplicationEventTarget(), 0, &hotKeyRef)
+        hotkeyError = PanelShortcuts.hotkeyRegistrationMessage(status: status)
+        if status != noErr { hotKeyRef = nil }
     }
 }
