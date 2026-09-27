@@ -128,4 +128,16 @@ final class ClipboardSettingsTests: XCTestCase {
         XCTAssertEqual(again.settings.shortcuts.combo(for: .delete), KeyCombo(keyCode: 2, modifiers: PanelShortcuts.command, display: "⌘D"))
         XCTAssertEqual(again.settings.shortcuts.quickPickDisplay, "⌥⌘1–9")
     }
+
+    // MARK: Screenshots
+
+    func testCaptureScreenshotFilesDefaultsOnAndRoundTrips() throws {
+        XCTAssertTrue(ClipboardSettings().captureScreenshotFiles)
+        let absent = try JSONDecoder().decode(ClipboardSettings.self, from: #"{"maxStack":99}"#.data(using: .utf8)!)
+        XCTAssertTrue(absent.captureScreenshotFiles)
+        var s = ClipboardSettings()
+        s.captureScreenshotFiles = false
+        let back = try JSONDecoder().decode(ClipboardSettings.self, from: JSONEncoder().encode(s))
+        XCTAssertFalse(back.captureScreenshotFiles)
+    }
 }

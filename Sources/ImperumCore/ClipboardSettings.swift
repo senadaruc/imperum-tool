@@ -47,6 +47,9 @@ public struct ClipboardSettings: Codable, Equatable {
     public var cmuxSocketPassword = ""
     /// Key map for the panel and its global hotkey (see `PanelShortcuts`).
     public var shortcuts: PanelShortcuts = .defaults
+    /// Watch the macOS and CleanShot X screenshot folders and import new
+    /// screenshot files as clips. Copied screenshots are captured regardless.
+    public var captureScreenshotFiles = true
 
     public init() {}
 
@@ -58,7 +61,7 @@ public struct ClipboardSettings: Codable, Equatable {
     public var doubleTapWindow: TimeInterval { TimeInterval(doubleTapMs) / 1000 }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, trigger, doubleTapMs, maxStack, retentionDays, categoryLimits, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, excludedHosts, paused, terminalPicker, allowCLI, cmuxSocketPassword, shortcuts
+        case enabled, trigger, doubleTapMs, maxStack, retentionDays, categoryLimits, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, excludedHosts, paused, terminalPicker, allowCLI, cmuxSocketPassword, shortcuts, captureScreenshotFiles
     }
 
     /// Forward-compatible: keys absent from older saved JSON keep their defaults.
@@ -84,6 +87,7 @@ public struct ClipboardSettings: Codable, Equatable {
         // where the value isn't even an object.
         let decodedShortcuts: PanelShortcuts? = (try? c.decodeIfPresent(PanelShortcuts.self, forKey: .shortcuts)) ?? nil
         s.shortcuts = decodedShortcuts ?? .defaults
+        s.captureScreenshotFiles = try c.decodeIfPresent(Bool.self, forKey: .captureScreenshotFiles) ?? s.captureScreenshotFiles
         self = s
     }
 }
