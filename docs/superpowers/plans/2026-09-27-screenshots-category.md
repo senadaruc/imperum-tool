@@ -54,7 +54,7 @@
 **Interfaces:**
 - Produces: `ClipKind.screenshot`; `ClipCategory.screenshots` (between `.images` and `.videos`, `kind == .screenshot`, `title == "Screenshots"`, `ClipCategory(kind: .screenshot) == .screenshots`); `ClipClassifier.title(screenshotWidth:height:) -> String`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `Tests/ImperumCoreTests/ClipQueryTests.swift`, change the assertion on line 21 to:
 
@@ -127,12 +127,12 @@ Append inside the `final class` in `Tests/CopyStackKitTests/ProtocolTests.swift`
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter 'ClipQueryTests|ClipTests|ClipStoreTests|FrameRendererTests|ProtocolTests' 2>&1 | grep -E 'error:' | head -5`
 Expected: compile errors — `type 'ClipKind' has no member 'screenshot'`, `type 'ClipCategory' has no member 'screenshots'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `Sources/ImperumCore/Clip.swift`, replace the `ClipKind` enum:
 
@@ -171,7 +171,7 @@ public enum ClipKind: String, Codable, CaseIterable, Hashable {
 
 `Sources/ImperumTool/CopyStackView.swift` `leading`: change `case .image:` to `case .image, .screenshot:`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test 2>&1 | grep -E "error:|Test Suite '(ImperumCoreTests|CopyStackKitTests)\.xctest' (passed|failed)" -A1`
 Expected: both bundles pass; ImperumCore 183, CopyStackKit 265. (Run the whole suite: the new enum case must compile through `copystack` and `ImperumTool` too.)
@@ -179,7 +179,7 @@ Expected: both bundles pass; ImperumCore 183, CopyStackKit 265. (Run the whole s
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep -E 'error:|Build complete'`
 Expected: `Build complete!`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumCore/Clip.swift Sources/ImperumCore/ClipQuery.swift Sources/ImperumCore/ClipClassifier.swift Sources/CopyStackKit/Protocol.swift Sources/CopyStackKit/RequestHandler.swift Sources/CopyStackKit/FrameRenderer.swift Sources/ImperumTool/CopyStackView.swift Tests/ImperumCoreTests/ClipQueryTests.swift Tests/ImperumCoreTests/ClipTests.swift Tests/ImperumCoreTests/ClipStoreTests.swift Tests/CopyStackKitTests/FrameRendererTests.swift Tests/CopyStackKitTests/ProtocolTests.swift
@@ -199,7 +199,7 @@ git commit -m "feat(clipboard): Screenshots category and screenshot clip kind" -
 - Consumes: `ClipKind.screenshot`, `ClipClassifier.title(screenshotWidth:height:)` (Task 1).
 - Produces: `PasteboardReading.itemTypes: [[String]]` (one array per pasteboard item); `ClipCapture.isScreenshotSignature(itemTypes:) -> Bool`; `ClipCapture.nativeScreenshotSource == (name: "Screenshot", bundle: "com.apple.screencapture")`; `ClipCapture.contentID(_ data: Data) -> UUID` (now `public`, reused by Task 5).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `Tests/ImperumCoreTests/ClipCaptureTests.swift`, add to `FakePasteboard` after `var types: [String] = ["public.utf8-plain-text"]`:
 
@@ -235,12 +235,12 @@ Append inside `final class ClipCaptureTests`:
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ClipCaptureTests 2>&1 | grep -E 'error:' | head -3`
 Expected: `extra argument 'items' in call` / `type 'ClipCapture' has no member 'isScreenshotSignature'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `Sources/ImperumCore/ClipCapture.swift`, change `private static func contentID(_ data: Data) -> UUID` to `public static func contentID(_ data: Data) -> UUID` (the screenshot importer in Task 5 derives ids the same way so a saved and a byte-identical copied screenshot share one id).
 
@@ -289,7 +289,7 @@ Replace the image branch in `capture`:
     var itemTypes: [[String]] { (pb.pasteboardItems ?? []).map { $0.types.map(\.rawValue) } }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ClipCaptureTests 2>&1 | grep -E 'error:|failed|Executed' | head -3`
 Expected: all pass (existing count + 1).
@@ -297,7 +297,7 @@ Expected: all pass (existing count + 1).
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep -E 'error:|Build complete'`
 Expected: `Build complete!` (the only other `PasteboardReading` conformer is `NSPasteboardReader`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumCore/ClipCapture.swift Sources/ImperumTool/PasteboardReader.swift Tests/ImperumCoreTests/ClipCaptureTests.swift
@@ -327,7 +327,7 @@ git commit -m "feat(clipboard): classify a bare-PNG pasteboard as a screenshot" 
     - `mutating func verdict(for: FileEvent) -> FileVerdict`
     - `mutating func isDuplicate(width: Int, height: Int, at: Date) -> Bool` (records the size when it is not a duplicate)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `Tests/ImperumCoreTests/ScreenshotDetectorTests.swift`:
 
@@ -448,12 +448,12 @@ final class ScreenshotDetectorTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ScreenshotDetectorTests 2>&1 | grep -E 'error:' | head -3`
 Expected: `cannot find 'ScreenshotDetector' in scope`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `Sources/ImperumCore/ScreenshotDetector.swift`:
 
@@ -611,12 +611,12 @@ public struct ScreenshotDetector {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ScreenshotDetectorTests 2>&1 | grep -E 'error:|failed|Executed' | head -3`
 Expected: `Executed 11 tests, with 0 failures`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumCore/ScreenshotDetector.swift Tests/ImperumCoreTests/ScreenshotDetectorTests.swift
@@ -634,7 +634,7 @@ git commit -m "feat(clipboard): ScreenshotDetector with root resolution, settle 
 **Interfaces:**
 - Produces: `ClipboardSettings.captureScreenshotFiles: Bool` (default `true`; JSON key `captureScreenshotFiles`; absent → `true`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append inside `final class ClipboardSettingsTests`:
 
@@ -652,12 +652,12 @@ Append inside `final class ClipboardSettingsTests`:
     }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ClipboardSettingsTests 2>&1 | grep -E 'error:' | head -2`
 Expected: `value of type 'ClipboardSettings' has no member 'captureScreenshotFiles'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `Sources/ImperumCore/ClipboardSettings.swift`, after `public var shortcuts: PanelShortcuts = .defaults` add:
 
@@ -673,12 +673,12 @@ Add `captureScreenshotFiles` to the end of `CodingKeys`, and in `init(from:)` af
         s.captureScreenshotFiles = try c.decodeIfPresent(Bool.self, forKey: .captureScreenshotFiles) ?? s.captureScreenshotFiles
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ClipboardSettingsTests 2>&1 | grep -E 'error:|failed|Executed' | head -2`
 Expected: `Executed 12 tests, with 0 failures`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumCore/ClipboardSettings.swift Tests/ImperumCoreTests/ClipboardSettingsTests.swift
@@ -705,7 +705,7 @@ git commit -m "feat(clipboard): captureScreenshotFiles setting" -m "Co-Authored-
 
 No unit test (AppKit + FSEvents, app target). Verified by build, the full suite, and the manual checks in Step 5.
 
-- [ ] **Step 1: `ImageFile` helper**
+- [x] **Step 1: `ImageFile` helper**
 
 Append to `Sources/ImperumTool/PasteboardReader.swift`:
 
@@ -723,7 +723,7 @@ enum ImageFile {
 }
 ```
 
-- [ ] **Step 2: `ScreenshotWatcher`**
+- [x] **Step 2: `ScreenshotWatcher`**
 
 Create `Sources/ImperumTool/ScreenshotWatcher.swift`:
 
@@ -786,7 +786,7 @@ final class ScreenshotWatcher {
 }
 ```
 
-- [ ] **Step 3: `ScreenshotImporter`**
+- [x] **Step 3: `ScreenshotImporter`**
 
 Create `Sources/ImperumTool/ScreenshotImporter.swift`:
 
@@ -910,7 +910,7 @@ final class ScreenshotImporter {
 }
 ```
 
-- [ ] **Step 4: Wire the controller**
+- [x] **Step 4: Wire the controller**
 
 `Sources/ImperumTool/ClipboardController.swift`:
 
@@ -975,7 +975,7 @@ In `poll()`, replace everything from `if let data = captured.blobData, let id = 
 
 (The original closing `}` of `poll()` now closes `insertCaptured`. Re-read the two functions after editing: `poll()` must end right after `insertCaptured(captured)`.)
 
-- [ ] **Step 5: Build, run the suite, manual check**
+- [x] **Step 5: Build, run the suite, manual check**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep -E 'error:|Build complete'`
 Expected: `Build complete!`
@@ -989,7 +989,7 @@ Manual (needs a human; if none is available, record that in the ledger and move 
 3. `screencapture -c -x -R0,0,20,20` → one clip (pasteboard path), source "Screenshot".
 4. Paste a screenshot clip into Notes → the image appears.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Sources/ImperumTool/ScreenshotWatcher.swift Sources/ImperumTool/ScreenshotImporter.swift Sources/ImperumTool/PasteboardReader.swift Sources/ImperumTool/ClipboardController.swift
@@ -1006,7 +1006,7 @@ git commit -m "feat(clipboard): watch macOS and CleanShot X screenshot folders a
 **Interfaces:**
 - Consumes: `ClipboardSettings.captureScreenshotFiles` (Task 4); `ClipboardController.screenshotWatchStatus` (Task 5); the tab already observes `controller`.
 
-- [ ] **Step 1: Add the toggle and caption**
+- [x] **Step 1: Add the toggle and caption**
 
 In `Sources/ImperumTool/ClipboardSettingsTab.swift`, directly after `Toggle("Show clip count in the menu bar", isOn: $store.settings.showBadge)` insert:
 
@@ -1021,7 +1021,7 @@ In `Sources/ImperumTool/ClipboardSettingsTab.swift`, directly after `Toggle("Sho
                 }
 ```
 
-- [ ] **Step 2: Build and snapshot**
+- [x] **Step 2: Build and snapshot**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep -E 'error:|Build complete'`
 Expected: `Build complete!`
@@ -1032,12 +1032,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run ImperumTool -
 ```
 Open the PNG with the Read tool. Expected: under "Show clip count in the menu bar", the new toggle (on) and a caption starting "Watching: ~/Desktop, ~/Library/Application Support/CleanShot/media, ~/Desktop/Screenshots" (this Mac's native location is on an unmounted volume, so the caption also ends with "Screenshot folder not available (volume not mounted)"). The "Limit per category" group, when expanded in a real run, lists Screenshots between Images and Videos.
 
-- [ ] **Step 3: Run the suite**
+- [x] **Step 3: Run the suite**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test 2>&1 | grep -E "Test Suite '(ImperumCoreTests|CopyStackKitTests)\.xctest' (passed|failed)" -A1`
 Expected: both pass; ImperumCore 181 + 2 (T1) + 1 (T2) + 11 (T3) + 1 (T4) = 196, CopyStackKit 265.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add Sources/ImperumTool/ClipboardSettingsTab.swift
@@ -1052,7 +1052,7 @@ git commit -m "feat(clipboard): screenshot-file capture toggle and watch status 
 - Modify: `README.md:46-59` (Copy Stack intro), `:167` (test count)
 - Modify: `docs/superpowers/specs/2026-09-26-clipboard-history-design.md:280-284` (config keys)
 
-- [ ] **Step 1: README**
+- [x] **Step 1: README**
 
 Replace `←→ for category (Text · Links · Emails · Images · Videos · Files), ↑↓ to` with `←→ for category (Text · Links · Emails · Images · Screenshots · Videos · Files), ↑↓ to`.
 
@@ -1072,7 +1072,7 @@ turns the folder watching off; copied screenshots are captured regardless.
 
 Update the test count on the `swift test` line: `(445 tests)` → the real total from Task 6 Step 3 (expected 461).
 
-- [ ] **Step 2: Old spec's config keys**
+- [x] **Step 2: Old spec's config keys**
 
 In `docs/superpowers/specs/2026-09-26-clipboard-history-design.md`, after the line `and \`clipboardShortcuts\` (the \`PanelShortcuts\` map, default = the keys above).` add:
 
@@ -1082,7 +1082,7 @@ Added 2026-09-27 (see `2026-09-27-screenshots-category-design.md`):
 screenshot folders and import new shots into the Screenshots category.
 ```
 
-- [ ] **Step 3: Final verification**
+- [x] **Step 3: Final verification**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test 2>&1 | grep -E "Test Suite '(ImperumCoreTests|CopyStackKitTests)\.xctest' (passed|failed)" -A1`
 Expected: both pass; fix the README count if the totals differ.
@@ -1090,7 +1090,7 @@ Expected: both pass; fix the README count if the totals differ.
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./build.sh 2>&1 | tail -1`
 Expected: `Built + signed: build/Imperum Tool.app`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add README.md docs/superpowers/specs/2026-09-26-clipboard-history-design.md
