@@ -6,6 +6,7 @@ import CopyStackKit
 
 struct ClipboardSettingsTab: View {
     @ObservedObject var store: ClipboardSettingsStore
+    @ObservedObject var controller: ClipboardController
     let onClearAll: () -> Void
     @State private var selectedExclusion: String?
     @State private var selectedHostExclusion: String?
@@ -22,7 +23,7 @@ struct ClipboardSettingsTab: View {
                 Toggle("Enable clipboard history", isOn: $store.settings.enabled)
                 Picker("Open the copy stack with", selection: $store.settings.trigger) {
                     Text("Double-tap ⌘V").tag(ClipboardTrigger.doubleTap)
-                    Text("⌘⇧V").tag(ClipboardTrigger.hotkey)
+                    Text(store.settings.shortcuts.combo(for: .openPanel).display).tag(ClipboardTrigger.hotkey)
                     Text("Both").tag(ClipboardTrigger.both)
                 }
                 if store.settings.trigger.usesDoubleTap {
@@ -53,6 +54,38 @@ struct ClipboardSettingsTab: View {
                 Text("Off by default: your clips are kept in a local encrypted file so your history is there next time. Turn on for session-only memory. Either way, nothing leaves this Mac.")
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle("Show clip count in the menu bar", isOn: $store.settings.showBadge)
+            }
+
+            Section("Shortcuts") {
+                ForEach(PanelAction.allCases, id: \.self) { action in
+                    LabeledContent(action.title) {
+                        KeyComboRecorder(combo: store.settings.shortcuts.combo(for: action),
+                                         stripFunctionModifier: true,
+                                         validate: { PanelShortcuts.problem(with: $0, for: action) }) { combo in
+                            if let combo { store.settings.shortcuts.set(combo, for: action) }
+                        }
+                    }
+                    let others = store.settings.shortcuts.conflicts(for: action)
+                    if !others.isEmpty {
+                        Text("Also used by " + others.joined(separator: ", ")).font(.caption).foregroundStyle(.orange)
+                    }
+                    if action == .openPanel, let err = controller.hotkeyError {
+                        Text(err).font(.caption).foregroundStyle(.orange)
+                    }
+                }
+                LabeledContent("Quick pick") {
+                    KeyComboRecorder(combo: KeyCombo(keyCode: 0, modifiers: store.settings.shortcuts.quickPickModifiers,
+                                                     display: store.settings.shortcuts.quickPickDisplay),
+                                     stripFunctionModifier: true,
+                                     validate: { PanelShortcuts.normalize($0.modifiers) == 0 ? .printableNeedsModifier : nil }) { combo in
+                        if let combo { store.settings.shortcuts.quickPickModifiers = combo.modifiers }
+                    }
+                }
+                Text("Hold these modifiers with 1–9 to paste that row. Press the modifiers with any key to record them.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Reset to defaults") { store.settings.shortcuts = .defaults }
+                Text("The terminal picker (copystack) keeps its own fixed keys.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Terminal") {
