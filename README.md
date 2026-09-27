@@ -46,7 +46,7 @@ Design: `docs/superpowers/specs/2026-09-06-tap-gestures-design.md`.
 Copy several things, then choose what to paste. **Double-tap ⌘V** (or the
 open-panel hotkey, ⌘⇧V by default, or a palm-rest tap bound to "Show Copy
 Stack") opens a floating panel over the app you are in: search as you type,
-←→ for category (Text · Links · Emails · Images · Videos · Files), ↑↓ to
+←→ for category (Text · Links · Emails · Images · Screenshots · Videos · Files), ↑↓ to
 move, ↩ or ⌘1–9 to paste, ⌘P to pin, ⌫ to delete, esc to close. Those are
 the defaults: every one of them, and the hotkey, can be re-recorded in
 Settings › Clipboard › Shortcuts (the terminal picker below keeps its own
@@ -57,6 +57,16 @@ Besides the global "Maximum stack size", each category can get its own cap
 (Settings › Clipboard › Limit per category): once a category is over it,
 its oldest unpinned clips are dropped automatically. Pinned clips never
 count.
+
+Screenshots get their own category. Whether you copy one (⌃⇧⌘3/4, or
+CleanShot X with copy-after-capture) or save it to a file (⇧⌘3/4, or any
+CleanShot X capture), it lands in the stack automatically, attributed to
+"Screenshot" or "CleanShot X" rather than the app that was in front, ready
+to paste as an image. The tool watches the macOS screenshot location (the
+Desktop unless you changed it) and CleanShot's media and export folders; it
+never moves or deletes the files, and it never imports shots taken before
+it was running. Settings › Clipboard › "Capture screenshots saved to disk"
+turns the folder watching off; copied screenshots are captured regardless.
 
 Privacy: nothing leaves this Mac. Anything a password manager marks concealed
 or transient is never captured, apps on the exclusion list are ignored, and
@@ -164,5 +174,5 @@ can't take arguments or write files.
 
 ## Develop / test
 
-    swift test                 # ImperumCore logic + samplers + tap detector + CopyStackKit (445 tests)
+    swift test                 # ImperumCore logic + samplers + tap detector + CopyStackKit (461 tests)
     swift run ImperumTool        # run from source
