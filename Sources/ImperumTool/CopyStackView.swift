@@ -64,6 +64,7 @@ struct CopyStackView: View {
                         ForEach(section.clips) { clip in
                             let index = model.indexByID[clip.id] ?? 0
                             ClipRow(clip: clip, index: index, selected: model.selectedID == clip.id,
+                                    quickPickPrefix: PanelShortcuts.modifierGlyphs(model.shortcuts.quickPickModifiers),
                                     thumbnail: model.thumbnail(for: clip), favicon: model.favicon(for: clip),
                                     richPreview: model.richPreview(for: clip))
                                 .id(clip.id)
@@ -80,22 +81,23 @@ struct CopyStackView: View {
     // MARK: Footer
 
     private var footer: some View {
-        HStack(spacing: 14) {
-            hint("arrow.up.arrow.down", "Navigate")
-            hint("arrow.left.arrow.right", "Category")
-            hint("return", "Paste")
-            hint("command", "Pin", literal: "⌘P")
-            hint("delete.left", "Delete")
+        let s = model.shortcuts
+        return HStack(spacing: 14) {
+            hint(s.combo(for: .up).display + s.combo(for: .down).display, "Navigate")
+            hint(s.combo(for: .previousCategory).display + s.combo(for: .nextCategory).display, "Category")
+            hint(s.combo(for: .paste).display, "Paste")
+            hint(s.combo(for: .pin).display, "Pin")
+            hint(s.combo(for: .delete).display, "Delete")
             Spacer()
-            hint("escape", "Close", literal: "esc")
+            hint(s.combo(for: .close).display, "Close")
         }
         .font(.caption).foregroundStyle(.secondary)
         .padding(.horizontal, 16).padding(.vertical, 10)
     }
 
-    private func hint(_ symbol: String, _ label: String, literal: String? = nil) -> some View {
+    private func hint(_ keys: String, _ label: String) -> some View {
         HStack(spacing: 5) {
-            Group { if let l = literal { Text(l).font(.caption2.monospaced()) } else { Image(systemName: symbol) } }
+            Text(keys).font(.caption2.monospaced())
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.1)))
             Text(label)
@@ -107,6 +109,7 @@ private struct ClipRow: View {
     let clip: Clip
     let index: Int
     let selected: Bool
+    let quickPickPrefix: String
     let thumbnail: NSImage?
     let favicon: NSImage?
     let richPreview: NSImage?
@@ -127,7 +130,7 @@ private struct ClipRow: View {
                     .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(0.15)))
             }
             if clip.isPinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary) }
-            if index < 9 { Text("⌘\(index + 1)").font(.caption.monospaced()).foregroundStyle(.secondary) }
+            if index < 9 { Text("\(quickPickPrefix)\(index + 1)").font(.caption.monospaced()).foregroundStyle(.secondary) }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 10).fill(selected ? Color.primary.opacity(0.16) : .clear))

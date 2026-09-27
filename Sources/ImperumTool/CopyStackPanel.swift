@@ -109,22 +109,26 @@ final class CopyStackPanel {
 
     /// True when consumed. Anything else goes to the search field.
     private func route(_ e: NSEvent) -> Bool {
-        let flags = e.modifierFlags
-        let cmd = flags.contains(.command)
-        let plain = !cmd && !flags.contains(.option)
-        switch e.keyCode {
-        case 126 where plain: return model.handle(key: .up)
-        case 125 where plain: return model.handle(key: .down)
-        case 123 where plain: return model.handle(key: .left)
-        case 124 where plain: return model.handle(key: .right)
-        case 36, 76: if plain { return model.handle(key: .enter) }
-        case 53: return model.handle(key: .escape)
-        case 51 where model.query.isEmpty: return model.handle(key: .delete)
-        default: break
+        let shortcuts = model.shortcuts
+        let mods = PanelShortcuts.normalize(UInt(e.modifierFlags.rawValue))
+        let cmd = e.modifierFlags.contains(.command)
+
+        // 1. The user's bindings, first match wins. Keypad Enter doubles as Return.
+        var action = shortcuts.action(keyCode: e.keyCode, modifiers: mods)
+        if action == nil, e.keyCode == 76 { action = shortcuts.action(keyCode: 36, modifiers: mods) }
+        if let action, let command = Self.command(for: action) {
+            if action == .delete, shortcuts.deleteYieldsToSearchField(queryEmpty: model.query.isEmpty) { return false }
+            return model.handle(key: command)
         }
+
+        // 2. Quick pick: the configured modifiers plus a digit.
+        if mods == shortcuts.quickPickModifiers, let ch = e.charactersIgnoringModifiers,
+           let n = Int(ch), (1...9).contains(n) {
+            return model.handle(key: .digit(n))
+        }
+
+        // 3. Standard editing shortcuts and the swallow list.
         if cmd, let ch = e.charactersIgnoringModifiers {
-            if ch == "p" { return model.handle(key: .pin) }
-            if let n = Int(ch), (1...9).contains(n) { return model.handle(key: .digit(n)) }
             // The panel has no Edit menu, so these standard shortcuts would
             // otherwise be swallowed by the local monitor and do nothing in
             // the search field. Route them to the field's editor directly.
@@ -141,11 +145,25 @@ final class CopyStackPanel {
             // a different character, so a key-code match let ⌘Q fall
             // through and quit the app. "0" is safe here — it never reaches
             // this switch for a digit paste, since that's handled by the
-            // (1...9) check above.
+            // quick-pick check above.
             case "q", ",", "0", "w": return true // ⌘Q, ⌘, (comma), ⌘0, ⌘W
             default: break
             }
         }
         return false
+    }
+
+    private static func command(for action: PanelAction) -> CopyStackModel.KeyCommand? {
+        switch action {
+        case .up: return .up
+        case .down: return .down
+        case .previousCategory: return .left
+        case .nextCategory: return .right
+        case .paste: return .enter
+        case .pin: return .pin
+        case .delete: return .delete
+        case .close: return .escape
+        case .openPanel: return nil   // never returned by action(keyCode:modifiers:)
+        }
     }
 }

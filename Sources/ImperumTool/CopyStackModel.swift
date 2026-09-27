@@ -44,6 +44,8 @@ final class CopyStackModel: ObservableObject {
          faviconCacheDir: @escaping () -> URL?) {
         self.store = store; self.settings = settings; self.blobLookup = blobLookup; self.faviconCacheDir = faviconCacheDir
         store.$clips.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.recompute() }.store(in: &bag)
+        settings.$settings.map(\.shortcuts).removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
         favicons.onLoaded = { [weak self] in self?.objectWillChange.send() }
     }
 
@@ -51,6 +53,9 @@ final class CopyStackModel: ObservableObject {
     var category: ClipCategory { state.category }
     var selectedID: UUID? { flat.indices.contains(state.selectedIndex) ? flat[state.selectedIndex].id : nil }
     var totalCount: Int { flat.count }
+
+    /// The live key map. Read on every key event and by the footer.
+    var shortcuts: PanelShortcuts { settings.settings.shortcuts }
 
     func reset() { state.reset(); thumbs.removeAll(); richPreviews.removeAll(); focusGeneration += 1; recompute() }
 
