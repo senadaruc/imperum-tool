@@ -54,6 +54,14 @@ struct ClipboardSettingsTab: View {
                 Text("Off by default: your clips are kept in a local encrypted file so your history is there next time. Turn on for session-only memory. Either way, nothing leaves this Mac.")
                     .font(.caption).foregroundStyle(.secondary)
                 Toggle("Show clip count in the menu bar", isOn: $store.settings.showBadge)
+                Toggle("Capture screenshots saved to disk (macOS and CleanShot X)", isOn: $store.settings.captureScreenshotFiles)
+                if store.settings.captureScreenshotFiles {
+                    Text(controller.screenshotWatchStatus.isEmpty ? "Copied screenshots are always captured." : controller.screenshotWatchStatus)
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Screenshot files are ignored. Copied screenshots are still captured, under Screenshots.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             Section("Shortcuts") {
