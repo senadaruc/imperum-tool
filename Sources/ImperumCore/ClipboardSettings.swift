@@ -18,6 +18,21 @@ public struct ClipboardSettings: Codable, Equatable {
     public var doubleTapMs = 300 { didSet { doubleTapMs = min(400, max(200, doubleTapMs)) } }
     public var maxStack = 500 { didSet { maxStack = min(2000, max(20, maxStack)) } }
     public var retentionDays = 30 { didSet { retentionDays = min(365, max(1, retentionDays)) } }
+    /// Optional cap per category, keyed by `ClipCategory.rawValue` (never
+    /// "all"). Absent = no cap for that category. Values clamp to
+    /// `categoryLimitRange`; unknown keys are dropped.
+    public var categoryLimits: [String: Int] = [:] { didSet { categoryLimits = Self.sanitizedCategoryLimits(categoryLimits) } }
+    public static let categoryLimitRange = 10...2000
+    public static let categoryLimitDefault = 100
+
+    static func sanitizedCategoryLimits(_ raw: [String: Int]) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for (key, value) in raw {
+            guard let c = ClipCategory(rawValue: key), c != .all else { continue }
+            out[key] = min(categoryLimitRange.upperBound, max(categoryLimitRange.lowerBound, value))
+        }
+        return out
+    }
     public var clearOnQuit = false
     public var showBadge = true
     public var showFavicons = false
@@ -33,11 +48,15 @@ public struct ClipboardSettings: Codable, Equatable {
 
     public init() {}
 
-    public var limits: ClipLimits { ClipLimits(maxStack: maxStack, retentionDays: retentionDays) }
+    public var limits: ClipLimits {
+        var per: [ClipCategory: Int] = [:]
+        for (key, value) in categoryLimits { if let c = ClipCategory(rawValue: key) { per[c] = value } }
+        return ClipLimits(maxStack: maxStack, retentionDays: retentionDays, perCategory: per)
+    }
     public var doubleTapWindow: TimeInterval { TimeInterval(doubleTapMs) / 1000 }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, trigger, doubleTapMs, maxStack, retentionDays, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, excludedHosts, paused, terminalPicker, allowCLI, cmuxSocketPassword
+        case enabled, trigger, doubleTapMs, maxStack, retentionDays, categoryLimits, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, excludedHosts, paused, terminalPicker, allowCLI, cmuxSocketPassword
     }
 
     /// Forward-compatible: keys absent from older saved JSON keep their defaults.
@@ -49,6 +68,7 @@ public struct ClipboardSettings: Codable, Equatable {
         s.doubleTapMs = try c.decodeIfPresent(Int.self, forKey: .doubleTapMs) ?? s.doubleTapMs
         s.maxStack = try c.decodeIfPresent(Int.self, forKey: .maxStack) ?? s.maxStack
         s.retentionDays = try c.decodeIfPresent(Int.self, forKey: .retentionDays) ?? s.retentionDays
+        s.categoryLimits = try c.decodeIfPresent([String: Int].self, forKey: .categoryLimits) ?? [:]
         s.clearOnQuit = try c.decodeIfPresent(Bool.self, forKey: .clearOnQuit) ?? s.clearOnQuit
         s.showBadge = try c.decodeIfPresent(Bool.self, forKey: .showBadge) ?? s.showBadge
         s.showFavicons = try c.decodeIfPresent(Bool.self, forKey: .showFavicons) ?? s.showFavicons

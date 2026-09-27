@@ -75,4 +75,31 @@ final class ClipboardSettingsTests: XCTestCase {
         s.retentionDays = 0; XCTAssertEqual(s.retentionDays, 1)
         s.retentionDays = 999; XCTAssertEqual(s.retentionDays, 365)
     }
+
+    // MARK: Per-category limits
+
+    func testCategoryLimitsClampAndDropInvalidKeys() {
+        var s = ClipboardSettings()
+        s.categoryLimits = ["images": 5, "links": 9999, "all": 50, "bogus": 30]
+        XCTAssertEqual(s.categoryLimits, ["images": 10, "links": 2000])
+        XCTAssertEqual(s.limits.perCategory, [.images: 10, .links: 2000])
+        XCTAssertEqual(ClipboardSettings.categoryLimitRange, 10...2000)
+        XCTAssertEqual(ClipboardSettings.categoryLimitDefault, 100)
+    }
+
+    func testCategoryLimitsAbsentFromOlderJSONMeansOff() throws {
+        let json = #"{"enabled":true}"#.data(using: .utf8)!
+        let s = try JSONDecoder().decode(ClipboardSettings.self, from: json)
+        XCTAssertEqual(s.categoryLimits, [:])
+        XCTAssertEqual(s.limits.perCategory, [:])
+    }
+
+    func testCategoryLimitsRoundTripAndSanitizeOnDecode() throws {
+        var s = ClipboardSettings()
+        s.categoryLimits = ["text": 40]
+        let data = try JSONEncoder().encode(s)
+        XCTAssertEqual(try JSONDecoder().decode(ClipboardSettings.self, from: data).categoryLimits, ["text": 40])
+        let hand = #"{"categoryLimits":{"videos":1,"all":7}}"#.data(using: .utf8)!
+        XCTAssertEqual(try JSONDecoder().decode(ClipboardSettings.self, from: hand).categoryLimits, ["videos": 10])
+    }
 }
