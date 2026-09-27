@@ -54,16 +54,30 @@ public final class ClipStore: ObservableObject {
         onChange?()
     }
 
-    /// Drop unpinned clips beyond `maxStack` (oldest first) and unpinned clips
-    /// older than `retentionDays`. A clip stamped in the future is never "old".
+    /// Drop unpinned clips beyond `maxStack` (oldest first), unpinned clips
+    /// older than `retentionDays`, and unpinned clips beyond their
+    /// category's cap in `perCategory` (oldest in that category first).
+    /// Pinned clips are kept and not counted. A clip stamped in the future
+    /// is never "old".
     public func enforce(limits: ClipLimits, now: Date = Date(), notify: Bool = true) {
         let cutoff = now.addingTimeInterval(-TimeInterval(limits.retentionDays) * 86_400)
         var unpinnedSeen = 0
+        var seenInCategory: [ClipCategory: Int] = [:]
         var dropped: [UUID] = []
         clips = clips.filter { c in
             if c.isPinned { return true }
-            unpinnedSeen += 1
-            let keep = unpinnedSeen <= limits.maxStack && c.capturedAt >= cutoff
+            let category = ClipCategory(kind: c.kind)
+            let inCategory = (seenInCategory[category] ?? 0) + 1
+            seenInCategory[category] = inCategory
+            let underCategoryCap = limits.perCategory[category].map { inCategory <= $0 } ?? true
+            // Only clips that survive the category cap and retention count
+            // toward the global cap, so "Maximum stack size" means how many
+            // unpinned clips remain, not how many were looked at.
+            var keep = underCategoryCap && c.capturedAt >= cutoff
+            if keep {
+                unpinnedSeen += 1
+                keep = unpinnedSeen <= limits.maxStack
+            }
             if !keep, let b = c.blobID { dropped.append(b) }
             return keep
         }

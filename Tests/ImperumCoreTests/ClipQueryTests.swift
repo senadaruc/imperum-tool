@@ -78,4 +78,15 @@ final class ClipQueryTests: XCTestCase {
     func testEmptyInputGivesNoSections() {
         XCTAssertTrue(ClipGrouper.sections([], now: Date(), calendar: cal).isEmpty)
     }
+
+    func testEveryKindMapsToOneCategoryForLimits() {
+        XCTAssertEqual(ClipCategory(kind: .text), .text)
+        XCTAssertEqual(ClipCategory(kind: .color), .text)
+        XCTAssertEqual(ClipCategory(kind: .link), .links)
+        XCTAssertEqual(ClipCategory(kind: .email), .emails)
+        XCTAssertEqual(ClipCategory(kind: .image), .images)
+        XCTAssertEqual(ClipCategory(kind: .video), .videos)
+        XCTAssertEqual(ClipCategory(kind: .file), .files)
+        for k in ClipKind.allCases { XCTAssertNotEqual(ClipCategory(kind: k), .all) }
+    }
 }

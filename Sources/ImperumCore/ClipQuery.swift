@@ -27,6 +27,19 @@ public enum ClipCategory: String, CaseIterable, Equatable {
         }
     }
 
+    /// The category a clip of `kind` is counted under for per-category
+    /// limits: the same rule the chips use, so a legacy `.color` clip is Text.
+    public init(kind: ClipKind) {
+        switch kind {
+        case .text, .color: self = .text
+        case .link: self = .links
+        case .email: self = .emails
+        case .image: self = .images
+        case .video: self = .videos
+        case .file: self = .files
+        }
+    }
+
     /// Whether a clip of kind `k` belongs in this category. `.text` also
     /// matches the legacy `.color` kind (round 10: Colors is no longer a
     /// distinct category, but old archives may still hold `.color` clips —

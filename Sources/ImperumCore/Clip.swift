@@ -62,5 +62,10 @@ public struct Clip: Codable, Identifiable, Equatable, Hashable {
 public struct ClipLimits: Equatable {
     public var maxStack: Int
     public var retentionDays: Int
-    public init(maxStack: Int, retentionDays: Int) { self.maxStack = maxStack; self.retentionDays = retentionDays }
+    /// Optional cap per category (never `.all`). A category absent here has
+    /// no cap of its own; the global `maxStack` still applies.
+    public var perCategory: [ClipCategory: Int]
+    public init(maxStack: Int, retentionDays: Int, perCategory: [ClipCategory: Int] = [:]) {
+        self.maxStack = maxStack; self.retentionDays = retentionDays; self.perCategory = perCategory
+    }
 }
