@@ -58,7 +58,10 @@ public struct PanelShortcuts: Codable, Equatable {
     /// Keys that never type a character into the search field.
     public static let nonPrintingKeyCodes: Set<UInt16> = functionKeyCodes.union(
         [36, 76, 48, 51, 117, 53, 115, 119, 116, 121, 123, 124, 125, 126])   // ↩ ⌤ ⇥ ⌫ ⌦ ⎋ Home End PgUp PgDn ← → ↓ ↑
-    static let digitKeyCodes: [UInt16: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9]
+    /// Virtual key codes of the digit row 1–9. Quick pick is resolved by key
+    /// code, not by the typed character: ⇧ changes what "2" types ("@") and
+    /// non-QWERTY layouts type symbols on that row unshifted.
+    public static let digitKeyCodes: [UInt16: Int] = [18: 1, 19: 2, 20: 3, 21: 4, 23: 5, 22: 6, 26: 7, 28: 8, 25: 9]
 
     public private(set) var bindings: [PanelAction: KeyCombo]
     /// Held with a digit 1–9 to paste that row. The digits are fixed.
@@ -121,6 +124,18 @@ public struct PanelShortcuts: Codable, Equatable {
 
     public var conflictingActions: Set<PanelAction> { Set(PanelAction.allCases.filter { !conflicts(for: $0).isEmpty }) }
 
+    /// The row (1–9) a key event quick-picks, if its key is a digit and its
+    /// normalised modifiers equal `quickPickModifiers` exactly.
+    public func quickPickDigit(keyCode: UInt16, modifiers: UInt) -> Int? {
+        guard Self.normalize(modifiers) == quickPickModifiers else { return nil }
+        return Self.digitKeyCodes[keyCode]
+    }
+
+    /// Quick-pick modifiers need ⌘, ⌃ or ⌥: ⇧ alone would steal !…( from search.
+    public static func quickPickProblem(modifiers: UInt) -> ShortcutProblem? {
+        normalize(modifiers) & realModifiers != 0 ? nil : .printableNeedsModifier
+    }
+
     /// True when Delete is a bare ⌫/⌦ and the search field has text: the key
     /// must edit the query, not delete the selected clip.
     public func deleteYieldsToSearchField(queryEmpty: Bool) -> Bool {
@@ -170,8 +185,7 @@ public struct PanelShortcuts: Codable, Equatable {
             b[a] = combo
         }
         let q = ((try? c.decodeIfPresent(UInt.self, forKey: .quickPickModifiers)) ?? nil) ?? Self.command
-        let qm = Self.normalize(q)
-        self.init(bindings: b, quickPickModifiers: qm == 0 ? Self.command : qm)
+        self.init(bindings: b, quickPickModifiers: Self.quickPickProblem(modifiers: q) == nil ? q : Self.command)
     }
 
     public func encode(to encoder: Encoder) throws {

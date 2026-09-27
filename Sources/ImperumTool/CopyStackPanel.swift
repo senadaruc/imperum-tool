@@ -121,9 +121,8 @@ final class CopyStackPanel {
             return model.handle(key: command)
         }
 
-        // 2. Quick pick: the configured modifiers plus a digit.
-        if mods == shortcuts.quickPickModifiers, let ch = e.charactersIgnoringModifiers,
-           let n = Int(ch), (1...9).contains(n) {
+        // 2. Quick pick: the configured modifiers plus a digit-row key.
+        if let n = shortcuts.quickPickDigit(keyCode: e.keyCode, modifiers: mods) {
             return model.handle(key: .digit(n))
         }
 

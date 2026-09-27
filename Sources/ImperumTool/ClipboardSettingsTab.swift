@@ -77,7 +77,7 @@ struct ClipboardSettingsTab: View {
                     KeyComboRecorder(combo: KeyCombo(keyCode: 0, modifiers: store.settings.shortcuts.quickPickModifiers,
                                                      display: store.settings.shortcuts.quickPickDisplay),
                                      stripFunctionModifier: true,
-                                     validate: { PanelShortcuts.normalize($0.modifiers) == 0 ? .printableNeedsModifier : nil }) { combo in
+                                     validate: { PanelShortcuts.quickPickProblem(modifiers: $0.modifiers) }) { combo in
                         if let combo { store.settings.shortcuts.quickPickModifiers = combo.modifiers }
                     }
                 }

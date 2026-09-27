@@ -116,4 +116,25 @@ final class PanelShortcutsTests: XCTestCase {
         XCTAssertEqual(PanelShortcuts.hotkeyRegistrationMessage(status: -9878), "Already used by another app")
         XCTAssertEqual(PanelShortcuts.hotkeyRegistrationMessage(status: -50), "Could not register (error -50)")
     }
+
+    func testQuickPickDigitResolvesByKeyCodeIgnoringShiftAndNoise() {
+        var s = PanelShortcuts.defaults
+        XCTAssertEqual(s.quickPickDigit(keyCode: 19, modifiers: cmd), 2)            // 19 = "2"
+        XCTAssertEqual(s.quickPickDigit(keyCode: 18, modifiers: cmd | fn | numpad), 1)
+        XCTAssertNil(s.quickPickDigit(keyCode: 19, modifiers: cmd | shift), "modifiers must match exactly")
+        XCTAssertNil(s.quickPickDigit(keyCode: 2, modifiers: cmd), "D is not a digit")
+        XCTAssertNil(s.quickPickDigit(keyCode: 29, modifiers: cmd), "0 is not a quick-pick digit")   // 29 = "0"
+        s.quickPickModifiers = cmd | shift
+        XCTAssertEqual(s.quickPickDigit(keyCode: 19, modifiers: cmd | shift), 2, "⇧ in the modifiers must not break the lookup")
+        XCTAssertNil(s.quickPickDigit(keyCode: 19, modifiers: cmd))
+    }
+
+    func testQuickPickModifiersNeedARealModifier() {
+        XCTAssertEqual(PanelShortcuts.quickPickProblem(modifiers: 0), .printableNeedsModifier)
+        XCTAssertEqual(PanelShortcuts.quickPickProblem(modifiers: shift), .printableNeedsModifier)
+        XCTAssertNil(PanelShortcuts.quickPickProblem(modifiers: cmd | shift))
+        XCTAssertNil(PanelShortcuts.quickPickProblem(modifiers: opt | fn))
+        let json = #"{"quickPickModifiers":\#(shift)}"#.data(using: .utf8)!
+        XCTAssertEqual(try? JSONDecoder().decode(PanelShortcuts.self, from: json).quickPickModifiers, cmd, "⇧-only on decode → default")
+    }
 }

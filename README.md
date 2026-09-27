@@ -164,5 +164,5 @@ can't take arguments or write files.
 
 ## Develop / test
 
-    swift test                 # ImperumCore logic + samplers + tap detector + CopyStackKit (443 tests)
+    swift test                 # ImperumCore logic + samplers + tap detector + CopyStackKit (445 tests)
     swift run ImperumTool        # run from source
