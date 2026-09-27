@@ -49,7 +49,7 @@
 **Interfaces:**
 - Produces: `ClipCategory.init(kind: ClipKind)`; `ClipLimits.perCategory: [ClipCategory: Int]` with `init(maxStack:retentionDays:perCategory:)` (default `[:]`, so every existing `ClipLimits(maxStack:retentionDays:)` call still compiles).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `Tests/ImperumCoreTests/ClipQueryTests.swift`, inside `final class ClipQueryTests`:
 
@@ -136,12 +136,12 @@ Then inside `final class ClipStoreTests`:
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter 'ClipQueryTests|ClipStoreTests' 2>&1 | grep -E 'error:|Executed' | head`
 Expected: compile errors — `ClipCategory` has no `init(kind:)`, `ClipLimits` has no `perCategory` argument.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `Sources/ImperumCore/ClipQuery.swift`, inside `public enum ClipCategory`, after the `title` property:
 
@@ -204,12 +204,12 @@ Replace `enforce` in `Sources/ImperumCore/ClipStore.swift`:
     }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter 'ClipQueryTests|ClipStoreTests' 2>&1 | grep -E 'error:|failed|Executed' | head`
 Expected: `Executed N tests, with 0 failures` for both classes, N includes the 6 new tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumCore/ClipQuery.swift Sources/ImperumCore/Clip.swift Sources/ImperumCore/ClipStore.swift Tests/ImperumCoreTests/ClipQueryTests.swift Tests/ImperumCoreTests/ClipStoreTests.swift
@@ -228,7 +228,7 @@ git commit -m "feat(clipboard): per-category caps in ClipLimits and ClipStore.en
 - Consumes: `ClipLimits(maxStack:retentionDays:perCategory:)` from Task 1.
 - Produces: `ClipboardSettings.categoryLimits: [String: Int]` (keys are `ClipCategory.rawValue`, never `"all"`, values clamped to 10…2000 on set and on decode); `ClipboardSettings.categoryLimitRange: ClosedRange<Int>` (`10...2000`); `ClipboardSettings.categoryLimitDefault: Int` (`100`); `ClipboardSettings.limits.perCategory` populated from it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append inside `final class ClipboardSettingsTests` in `Tests/ImperumCoreTests/ClipboardSettingsTests.swift`:
 
@@ -261,12 +261,12 @@ Append inside `final class ClipboardSettingsTests` in `Tests/ImperumCoreTests/Cl
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ClipboardSettingsTests 2>&1 | grep -E 'error:|Executed' | head`
 Expected: compile error — `ClipboardSettings` has no member `categoryLimits`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `Sources/ImperumCore/ClipboardSettings.swift`, inside `public struct ClipboardSettings`:
 
@@ -308,12 +308,12 @@ Add `categoryLimits` to `CodingKeys` (after `retentionDays`), and in `init(from:
 
 (Assigning to `s.categoryLimits` runs `didSet`, so hand-edited JSON is clamped and filtered the same way the setter is.)
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ClipboardSettingsTests 2>&1 | grep -E 'error:|failed|Executed' | head`
 Expected: all pass, including the pre-existing `testDefaultsMatchSpec` (default `perCategory` is `[:]`, so `ClipLimits(maxStack: 500, retentionDays: 30)` still compares equal).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumCore/ClipboardSettings.swift Tests/ImperumCoreTests/ClipboardSettingsTests.swift
@@ -332,7 +332,7 @@ git commit -m "feat(clipboard): store per-category limits in ClipboardSettings" 
 
 No unit test: this is SwiftUI in the app target (no test target). Verified by build + the `--snapshot-settings` dev hook.
 
-- [ ] **Step 1: Add the disclosure group**
+- [x] **Step 1: Add the disclosure group**
 
 In `Sources/ImperumTool/ClipboardSettingsTab.swift`, directly after the line
 `Stepper("Maximum stack size: \(store.settings.maxStack)", value: $store.settings.maxStack, in: 20...2000, step: 10)` insert:
@@ -381,12 +381,12 @@ private struct CategoryLimitRow: View {
 }
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep -E 'error:|Build complete'`
 Expected: `Build complete!`
 
-- [ ] **Step 3: Render the tab and look at it**
+- [x] **Step 3: Render the tab and look at it**
 
 Run:
 ```bash
@@ -394,12 +394,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run ImperumTool -
 ```
 Then open the PNG with the Read tool. Expected: a "Limit per category" disclosure under "Maximum stack size". Expand it in a real run (`swift run ImperumTool`, Settings › Clipboard): six rows Text, Links, Emails, Images, Videos, Files; toggling Images on shows a "100 clips" stepper; the value survives reopening Settings.
 
-- [ ] **Step 4: Run the whole suite**
+- [x] **Step 4: Run the whole suite**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test 2>&1 | grep -E "Test Suite '(ImperumCoreTests|CopyStackKitTests)\.xctest' (passed|failed)" -A1`
 Expected: both bundles pass; ImperumCore count is 158 + 9 = 167.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumTool/ClipboardSettingsTab.swift
@@ -436,7 +436,7 @@ git commit -m "feat(clipboard): Limit per category rows in the Clipboard setting
     - `static func modifierGlyphs(_: UInt) -> String`; `var quickPickDisplay: String`
     - `static func hotkeyRegistrationMessage(status: Int32) -> String?`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `Tests/ImperumCoreTests/PanelShortcutsTests.swift`:
 
@@ -562,12 +562,12 @@ final class PanelShortcutsTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter PanelShortcutsTests 2>&1 | grep -E 'error:' | head -3`
 Expected: `cannot find 'PanelShortcuts' in scope`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `Sources/ImperumCore/PanelShortcuts.swift`:
 
@@ -758,12 +758,12 @@ public struct PanelShortcuts: Codable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter PanelShortcutsTests 2>&1 | grep -E 'error:|failed|Executed' | head`
 Expected: `Executed 9 tests, with 0 failures`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumCore/PanelShortcuts.swift Tests/ImperumCoreTests/PanelShortcutsTests.swift
@@ -782,7 +782,7 @@ git commit -m "feat(clipboard): PanelShortcuts key map with validation, conflict
 - Consumes: `PanelShortcuts`, `.defaults`, `set(_:for:)`, `combo(for:)` (Task 4).
 - Produces: `ClipboardSettings.shortcuts: PanelShortcuts` (default `.defaults`; absent or non-object JSON → `.defaults`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append inside `final class ClipboardSettingsTests`:
 
@@ -814,12 +814,12 @@ Append inside `final class ClipboardSettingsTests`:
     }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ClipboardSettingsTests 2>&1 | grep -E 'error:' | head -3`
 Expected: `value of type 'ClipboardSettings' has no member 'shortcuts'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `Sources/ImperumCore/ClipboardSettings.swift`, inside the struct after the `cmuxSocketPassword` property:
 
@@ -837,12 +837,12 @@ Add `shortcuts` to `CodingKeys` (last), and in `init(from:)` after the `cmuxSock
         s.shortcuts = decodedShortcuts ?? .defaults
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ClipboardSettingsTests 2>&1 | grep -E 'error:|failed|Executed' | head`
 Expected: all pass (11 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumCore/ClipboardSettings.swift Tests/ImperumCoreTests/ClipboardSettingsTests.swift
@@ -861,7 +861,7 @@ git commit -m "feat(clipboard): persist PanelShortcuts in ClipboardSettings" -m 
 - Consumes: `PanelShortcuts.normalize`, `.command/.shift/.option/.control`, `.hotkeyRegistrationMessage(status:)`, `ClipboardSettings.shortcuts.combo(for: .openPanel)`.
 - Produces: `CmdVTap.start(doubleTap: Bool, hotkey: KeyCombo?) -> Bool`; `CmdVTap.hotkeyError: String?`; `ClipboardController: ObservableObject` with `@Published private(set) var hotkeyError: String?`.
 
-- [ ] **Step 1: Change `CmdVTap`**
+- [x] **Step 1: Change `CmdVTap`**
 
 Replace the class doc comment's first line with:
 ```swift
@@ -928,7 +928,7 @@ Replace the whole `// MARK: Carbon hotkey (⌘⇧V, matching CopyCat)` section:
     }
 ```
 
-- [ ] **Step 2: Change `ClipboardController`**
+- [x] **Step 2: Change `ClipboardController`**
 
 Line 17: `final class ClipboardController {` → `final class ClipboardController: ObservableObject {`.
 
@@ -967,7 +967,7 @@ In `apply(_:)`, replace from `let triggerChanged = ...` through the closing brac
 
 and replace `lastApplied = (s.enabled, s.trigger, s.clearOnQuit)` with `lastApplied = (s.enabled, s.trigger, hotkey, s.clearOnQuit)`.
 
-- [ ] **Step 3: Build and run the suite**
+- [x] **Step 3: Build and run the suite**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep -E 'error:|Build complete'`
 Expected: `Build complete!` (the only `tap.start` caller is `apply`; `retryTapIfTrusted` goes through `apply` too).
@@ -975,11 +975,11 @@ Expected: `Build complete!` (the only `tap.start` caller is `apply`; `retryTapIf
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test 2>&1 | grep -E "Test Suite '(ImperumCoreTests|CopyStackKitTests)\.xctest' (passed|failed)" -A1`
 Expected: both pass.
 
-- [ ] **Step 4: Manual check**
+- [x] **Step 4: Manual check**
 
 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run ImperumTool`, Settings › Clipboard, trigger "Both". Press ⌘⇧V in another app: the panel opens (default binding still works). Quit.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumTool/CmdVTap.swift Sources/ImperumTool/ClipboardController.swift
@@ -1000,7 +1000,7 @@ git commit -m "feat(clipboard): register the recorded open-panel hotkey and surf
 - Produces: `CopyStackModel.shortcuts: PanelShortcuts` (live from the settings store; the model publishes a change when it changes).
 - Note vs. spec: the spec says the controller sets a `shortcuts` property on the model on every apply. The model already holds `ClipboardSettingsStore`, so reading `settings.settings.shortcuts` directly gives the same live value with no extra plumbing; that is what this task does.
 
-- [ ] **Step 1: `CopyStackModel`**
+- [x] **Step 1: `CopyStackModel`**
 
 After `var totalCount: Int { flat.count }` add:
 
@@ -1016,7 +1016,7 @@ In `init`, after the `store.$clips...` line add:
             .sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
 ```
 
-- [ ] **Step 2: `CopyStackPanel.route`**
+- [x] **Step 2: `CopyStackPanel.route`**
 
 Replace `route(_:)` entirely (keep the doc comment):
 
@@ -1084,7 +1084,7 @@ Replace `route(_:)` entirely (keep the doc comment):
 
 Behaviour notes (intentional, from the spec): bindings are matched on exact normalised modifiers, so ⇧↑ no longer moves the selection (it extends the text selection in search instead), and quick pick requires exactly the configured modifiers.
 
-- [ ] **Step 3: `CopyStackView`**
+- [x] **Step 3: `CopyStackView`**
 
 Replace the footer and `hint`:
 
@@ -1131,7 +1131,7 @@ In `private struct ClipRow`, add `let quickPickPrefix: String` after `let select
             if index < 9 { Text("\(quickPickPrefix)\(index + 1)").font(.caption.monospaced()).foregroundStyle(.secondary) }
 ```
 
-- [ ] **Step 4: Build and run the suite**
+- [x] **Step 4: Build and run the suite**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep -E 'error:|Build complete'`
 Expected: `Build complete!`
@@ -1139,11 +1139,11 @@ Expected: `Build complete!`
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test 2>&1 | grep -E "Test Suite '(ImperumCoreTests|CopyStackKitTests)\.xctest' (passed|failed)" -A1`
 Expected: both pass.
 
-- [ ] **Step 5: Manual check**
+- [x] **Step 5: Manual check**
 
 `swift run ImperumTool` (with `DEVELOPER_DIR`), copy three text clips, open the panel with ⌘⇧V: ↑↓ move, ←→ change chip, ⌘P pins, type a letter then ⌫ edits the query (does not delete), clear the query then ⌫ deletes, ⌘2 pastes the second row, keypad Enter pastes, esc closes. Footer reads `↑↓ Navigate · ←→ Category · ↩ Paste · ⌘P Pin · ⌫ Delete · ⎋ Close`; rows show ⌘1…⌘9.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Sources/ImperumTool/CopyStackModel.swift Sources/ImperumTool/CopyStackPanel.swift Sources/ImperumTool/CopyStackView.swift
@@ -1165,7 +1165,7 @@ git commit -m "feat(clipboard): route panel keys and render hints from PanelShor
 - Consumes: `ClipboardController.hotkeyError` (Task 6), `PanelShortcuts` API (Task 4), `ClipboardSettings.shortcuts` (Task 5).
 - Produces: `struct KeyComboRecorder: View` with `combo: KeyCombo?`, `stripFunctionModifier: Bool = false`, `validate: ((KeyCombo) -> ShortcutProblem?)? = nil`, `update: (KeyCombo?) -> Void`; `ClipboardSettingsTab(store:controller:onClearAll:)`; `SettingsTabs.makeController(config:blockStore:tapStore:tapController:clipboardStore:clipboardController:onClearClipboard:)`.
 
-- [ ] **Step 1: Extract the recorder**
+- [x] **Step 1: Extract the recorder**
 
 Create `Sources/ImperumTool/KeyComboRecorder.swift`:
 
@@ -1246,7 +1246,7 @@ struct KeyComboRecorder: View {
 
 In `Sources/ImperumTool/TapGesturesSettingsTab.swift` delete the whole `private struct KeyComboRecorder: View { ... }` (lines 390–438, from the `private struct KeyComboRecorder` line to its closing brace). The existing call site `KeyComboRecorder(combo: action.keyCombo) { ... }` keeps compiling: the trailing closure binds to `update` and the defaulted `var`s are skipped.
 
-- [ ] **Step 2: Wire the controller into the tab**
+- [x] **Step 2: Wire the controller into the tab**
 
 `Sources/ImperumTool/Settings.swift`: change the `makeController` signature to
 
@@ -1278,7 +1278,7 @@ and the clipboard tab line to
     @ObservedObject var controller: ClipboardController
 ```
 
-- [ ] **Step 3: The trigger label and the Shortcuts section**
+- [x] **Step 3: The trigger label and the Shortcuts section**
 
 In the trigger picker replace `Text("⌘⇧V").tag(ClipboardTrigger.hotkey)` with:
 
@@ -1322,7 +1322,7 @@ Directly after the closing brace of `Section("Capture & trigger") { ... }` (befo
             }
 ```
 
-- [ ] **Step 4: Build, run the suite, render the tab**
+- [x] **Step 4: Build, run the suite, render the tab**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep -E 'error:|Build complete'`
 Expected: `Build complete!`
@@ -1336,7 +1336,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run ImperumTool -
 ```
 Open the PNG with Read. Expected: a "Shortcuts" section with nine rows plus "Quick pick", each showing its default and a "Change…" button, then "Reset to defaults".
 
-- [ ] **Step 5: Manual checklist (from the spec)**
+- [x] **Step 5: Manual checklist (from the spec)**
 
 Run `swift run ImperumTool` (with `DEVELOPER_DIR`), Settings › Clipboard:
 1. Record ⌘⌥V for "Open the copy stack"; in another app ⌘⌥V opens the panel and ⌘⇧V no longer does. The trigger picker now reads "⌘⌥V".
@@ -1349,7 +1349,7 @@ Run `swift run ImperumTool` (with `DEVELOPER_DIR`), Settings › Clipboard:
 8. "Reset to defaults" restores every row and the footer.
 9. Tap Gestures › a "Press keyboard shortcut" slot still records (recorder still works there, fn key still shown as 🌐).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Sources/ImperumTool/KeyComboRecorder.swift Sources/ImperumTool/TapGesturesSettingsTab.swift Sources/ImperumTool/ClipboardSettingsTab.swift Sources/ImperumTool/Settings.swift Sources/ImperumTool/AppController.swift
@@ -1364,7 +1364,7 @@ git commit -m "feat(clipboard): Shortcuts section in Settings with a shared KeyC
 - Modify: `README.md:44-51` (Copy Stack intro), `:85` area (terminal picker keys), `:142` (test count)
 - Modify: `docs/superpowers/specs/2026-09-26-clipboard-history-design.md:280` (config keys)
 
-- [ ] **Step 1: README**
+- [x] **Step 1: README**
 
 Replace the first paragraph of "## Copy Stack (clipboard history)" (README lines 46–51) with:
 
@@ -1389,7 +1389,7 @@ In the "### Terminal picker" section, after the sentence that starts "In the pic
 
 Update the test count line under "## Develop / test": `(382 tests)` → `(443 tests)` (179 ImperumCore + 264 CopyStackKit; re-check against the final run and use the real number).
 
-- [ ] **Step 2: Old spec's config keys**
+- [x] **Step 2: Old spec's config keys**
 
 In `docs/superpowers/specs/2026-09-26-clipboard-history-design.md`, after the line ending `clipboardPaused` (false).` add:
 
@@ -1399,7 +1399,7 @@ Added 2026-09-27 (see `2026-09-27-clipboard-limits-and-shortcuts-design.md`):
 and `clipboardShortcuts` (the `PanelShortcuts` map, default = the keys above).
 ```
 
-- [ ] **Step 3: Final full verification**
+- [x] **Step 3: Final full verification**
 
 Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test 2>&1 | grep -E "Test Suite '(ImperumCoreTests|CopyStackKitTests)\.xctest' (passed|failed)" -A1`
 Expected: both pass. Note the real totals and fix the README count if it differs.
@@ -1407,7 +1407,7 @@ Expected: both pass. Note the real totals and fix the README count if it differs
 Run: `./build.sh 2>&1 | tail -2` — this uses the default toolchain and will fail on the SwiftUI macro; if it does, run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./build.sh 2>&1 | tail -2` instead.
 Expected: `Built + signed: build/Imperum Tool.app`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add README.md docs/superpowers/specs/2026-09-26-clipboard-history-design.md
