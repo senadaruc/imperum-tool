@@ -3,12 +3,23 @@ import AppKit
 import Combine
 import ImperumCore
 
+/// How the panel is presented: the full centred window, or the compact
+/// bubble anchored to a text caret with an arrow on one edge.
+enum PanelLayout: Equatable {
+    case full
+    case compact(arrowEdge: PanelPlacement.ArrowEdge, arrowX: CGFloat)
+
+    var isCompact: Bool { if case .compact = self { return true } else { return false } }
+}
+
 /// Panel view model: `PanelState` + the store's clips, thumbnails, favicons,
 /// and the key commands. `onPaste` / `onClose` are wired by the controller.
 final class CopyStackModel: ObservableObject {
     enum KeyCommand { case up, down, left, right, enter, escape, digit(Int), pin, delete }
 
     @Published private(set) var state = PanelState()
+    /// Set by `CopyStackPanel` right before it orders the window front.
+    @Published var layout: PanelLayout = .full
     @Published private(set) var sections: [ClipSection] = []
     @Published private(set) var flat: [Clip] = []
     @Published private(set) var indexByID: [UUID: Int] = [:]

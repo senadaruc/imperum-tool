@@ -41,6 +41,11 @@ struct ClipboardSettingsTab: View {
                         }
                     }
                 }
+                Toggle("Open at the text cursor", isOn: $store.settings.anchorToCaret)
+                Text(store.settings.anchorToCaret
+                     ? "Double-tap ⌘V opens a compact bubble at the insertion point of the field you are typing in (via Accessibility). Centred on screen when there is no text cursor."
+                     : "The copy stack opens centred on the screen.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Stepper("Maximum stack size: \(store.settings.maxStack)", value: $store.settings.maxStack, in: 20...2000, step: 10)
                 DisclosureGroup("Limit per category") {
                     ForEach(ClipCategory.allCases.filter { $0 != .all }, id: \.self) { c in

@@ -197,7 +197,9 @@ mirroring CopyCat. "Both" installs both.
   level `.floating`, `canBecomeKey = true`, `hidesOnDeactivate = false`,
   collection behaviour `[.canJoinAllSpaces, .fullScreenAuxiliary]`.
 - 640 × 520 pt, centred on the screen containing the mouse (from the menu:
-  the main screen). `NSVisualEffectView` material `.hudWindow`, 14 pt radius.
+  the main screen). Since 2026-09-28 the double-tap trigger opens a compact
+  bubble at the text caret instead when one can be found; see
+  `2026-09-28-caret-anchored-panel-design.md`. `NSVisualEffectView` material `.hudWindow`, 14 pt radius.
 - SwiftUI content, top to bottom: search field (auto-focused) with match
   count; chips All · Text · Links · Emails · Colors · Images · Videos · Files;
   sectioned list (kind glyph / 32 pt thumbnail / colour swatch, title,

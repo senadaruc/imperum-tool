@@ -91,7 +91,12 @@ final class ClipboardController: ObservableObject {
         store.onBlobsDropped = { [weak self] ids in self?.archive?.deleteBlobs(ids); self?.blobCache.remove(ids) }
         model.onPaste = { [weak self] clip in self?.paste(clip) }
         model.onClose = { [weak self] in self?.panel.hide() }
-        tap.onOpenPanel = { [weak self] in self?.openCopyStack(anchor: .mouseScreen) }
+        tap.onOpenPanel = { [weak self] in
+            guard let self else { return }
+            // Read the caret first, while the user's field still has focus.
+            let caret = self.settings.settings.anchorToCaret ? CaretLocator.caretRect() : nil
+            self.openCopyStack(anchor: caret.map { .caret($0) } ?? .mouseScreen)
+        }
         screenshots.onCaptured = { [weak self] captured, supersedes in
             // The same shot was copied first (CleanShot copy-after-capture):
             // the saved file wins, as a properly attributed Screenshot clip.
