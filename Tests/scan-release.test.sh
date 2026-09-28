@@ -79,5 +79,10 @@ for want in 'AuthKey_AB12CD34EF.p8' 'dist.p12' 'app.mobileprovision' 'KEY_ID' 'I
 done
 grep -q 'APPLE' <<<"$out" && ok "apple hits carry the APPLE category" || bad "no APPLE category in: $out"
 
+# 11. the scanner and its own tests carry every pattern by necessity; a repo
+#     that tracks them is still clean
+R=$(mkrepo self); cd "$R"; mkdir -p Tests; cp "$SCAN" scan-release.sh; cp "$ROOT/Tests/scan-release.test.sh" Tests/; git add . && git commit -q -m self
+"$SCAN" "$R" >/dev/null 2>&1 && ok "scanner and its tests are exempt" || bad "scanner flags itself: $("$SCAN" "$R" 2>&1 | head -2)"
+
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

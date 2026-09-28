@@ -35,8 +35,10 @@ report() {  # report CATEGORY NAME <grep -n output>
   done
 }
 
-# Text files only; git knows which are binary.
-FILES=$(git ls-files -z | xargs -0 grep -I -l '' 2>/dev/null | grep -v -x "$ALLOW" || true)
+# Text files only; git knows which are binary. The scanner and its tests
+# necessarily contain every pattern, and the allowlist holds the fixtures.
+SELF_EXEMPT="^($ALLOW|scan-release\.sh|Tests/scan-release\.test\.sh)$"
+FILES=$(git ls-files -z | xargs -0 grep -I -l '' 2>/dev/null | grep -v -E "$SELF_EXEMPT" || true)
 scan() {  # scan CATEGORY NAME REGEX [extra grep flags]
   local cat="$1" name="$2" re="$3"; shift 3
   [ -n "$FILES" ] || return 0
