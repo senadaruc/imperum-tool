@@ -24,5 +24,11 @@
 	<string>14.0</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Imperum Tool opens a Copy Stack window in your terminal app.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/senadaruc/imperum-tool/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>PoXsiXGCz+YMgzLKToML6W4aVTP4PCfPlpm7MSVqEec=</string>
 </dict>
 </plist>
