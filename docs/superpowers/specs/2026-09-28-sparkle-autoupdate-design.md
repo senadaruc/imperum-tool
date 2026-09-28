@@ -71,9 +71,9 @@ user's clipboard history.
 - Clipboard status-item menu gets the same item above "Settings…", wired
   through a new `onCheckForUpdates` closure like the existing `onSettings`.
   `ClipboardStatusItem` does not import Sparkle.
-- Settings › About section: one line "Version 0.3.1 (4)" already exists
-  or is added, plus a "Check for Updates…" button calling the same
-  action. Keeps the entry point discoverable from the window.
+- Settings › About section already shows "Version …"; a
+  "Check for Updates…" button goes beside it, calling the same action.
+  Keeps the entry point discoverable from the window.
 
 ### build.sh
 
