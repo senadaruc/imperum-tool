@@ -1,0 +1,9 @@
+# scan-release.sh allowlist: one extended regex per line. A reported line
+# matching any entry is ignored. Test fixtures and example data only.
+# Never allowlist a real credential; move it out of the repo instead.
+a@b\.co
+example\.com
+noreply@anthropic\.com
+/Users/(alice|me)\b
+cmuxSocketPassword = "s3cret"
+CleanShot 2026-09-27 at 11\.06\.37@2x\.png

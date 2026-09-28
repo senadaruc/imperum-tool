@@ -43,7 +43,7 @@
 - [x] **Step 1: Branch**
 
 ```bash
-cd /Users/deepdark/WSMonitor
+cd ~/WSMonitor
 git switch -c feat/sparkle-autoupdate
 ```
 

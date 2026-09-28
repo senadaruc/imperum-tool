@@ -25,6 +25,9 @@ esac
 BRANCH=$(git symbolic-ref --short -q HEAD) || { echo "detached HEAD; check out a branch" >&2; exit 1; }
 TAG="v$VERSION"
 
+# Nothing with a secret, Apple signing material or personal data goes public.
+./scan-release.sh . || { echo "release blocked by scan-release.sh" >&2; exit 1; }
+
 # The public key in the plist must be the one this Keychain signs with, or
 # generate_appcast writes an unsigned item that every installed copy rejects.
 PLIST_KEY=$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$PLIST")

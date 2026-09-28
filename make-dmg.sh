@@ -10,9 +10,14 @@ APP="build/Imperum Tool.app"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)
 DMG="build/ImperumTool-$VERSION.dmg"
 STAGING="build/dmg-staging"
-KEY="$HOME/.secrets/imperum/AuthKey_UB3PR8KXU8.p8"
-KEY_ID="UB3PR8KXU8"
-ISSUER="3eb5d7ab-66f4-448f-b174-165413a98055"
+# App Store Connect API key for notarytool, kept out of git: copy
+# .release.env.example to .release.env and fill it in.
+ENV_FILE="$(dirname "$0")/.release.env"
+[ -f "$ENV_FILE" ] || { echo "missing $ENV_FILE (see .release.env.example)" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$ENV_FILE"
+for v in ASC_KEY_PATH ASC_KEY_ID ASC_ISSUER_ID; do [ -n "${!v:-}" ] || { echo "$v not set in $ENV_FILE" >&2; exit 1; }; done
+KEY="$ASC_KEY_PATH"; KEY_ID="$ASC_KEY_ID"; ISSUER="$ASC_ISSUER_ID"
 
 [ -d "$APP" ] || { echo "Run ./build.sh first ($APP missing)"; exit 1; }
 

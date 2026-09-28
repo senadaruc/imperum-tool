@@ -279,7 +279,7 @@ Expected: PASS (5 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/deepdark/WSMonitor
+cd ~/WSMonitor
 git add Sources/WSCore/ExternalVolume.swift Tests/WSCoreTests/ExternalVolumeTests.swift
 git commit -m "feat: add pure diskutil-plist parser for external volumes"
 ```
@@ -361,7 +361,7 @@ Expected: `Build complete!`
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /Users/deepdark/WSMonitor
+cd ~/WSMonitor
 git add Sources/WSCore/DiskutilRunner.swift
 git commit -m "feat: add diskutil subprocess wrapper for external volume discovery"
 ```
@@ -509,7 +509,7 @@ Expected: PASS (4 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/deepdark/WSMonitor
+cd ~/WSMonitor
 git add Sources/WSCore/VolumeBlockStore.swift Tests/WSCoreTests/VolumeBlockStoreTests.swift
 git commit -m "feat: add UserDefaults-backed volume block-list store"
 ```
@@ -644,7 +644,7 @@ Then re-run `swift build` and confirm `Build complete!`.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/deepdark/WSMonitor
+cd ~/WSMonitor
 git add Sources/WSMonitor/VolumeAutoMountBlocker.swift
 # also `git add Package.swift` here if Step 3's change was needed
 git commit -m "feat: add DiskArbitration auto-mount blocker"
@@ -721,7 +721,7 @@ Expected: Build FAILS at this point — `SettingsView(config:blockStore:)` doesn
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/deepdark/WSMonitor
+cd ~/WSMonitor
 git add Sources/WSMonitor/AppController.swift
 git commit -m "feat: start volume auto-mount blocker at app launch"
 ```
@@ -940,7 +940,7 @@ Then:
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/deepdark/WSMonitor
+cd ~/WSMonitor
 git add Sources/WSMonitor/ExternalVolumesSettingsSection.swift Sources/WSMonitor/Settings.swift
 git commit -m "feat: add External Volumes settings section for auto-mount blocking"
 ```

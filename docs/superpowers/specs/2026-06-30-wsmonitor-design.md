@@ -157,7 +157,7 @@ causation-rank distinctly).
 `build.sh`: `xcodegen` → `xcodebuild -configuration Release` (app +
 helper) → `codesign --options runtime --timestamp --sign "Developer ID
 Application: Imperum B.V. (9TZGSR8224)"` for both. Notarization optional
-(`AuthKey_UB3PR8KXU8.p8` on hand). Output `WSMonitor.app` → `/Applications`,
+(the App Store Connect API key on hand). Output `WSMonitor.app` → `/Applications`,
 add to Login Items.
 
 ## Testing

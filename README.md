@@ -185,7 +185,17 @@ offers "Install and Relaunch". Pre-releases are never offered.
     ./release.sh 0.3.1         # bump, tag, build, notarize, DMG, signed appcast, GitHub Release
     ./release.sh 0.3.2 --pre   # same, marked pre-release (kept off the update feed)
 
-One-time setup on the release machine: run
+Before it touches anything, `release.sh` runs `scan-release.sh`, which
+refuses to release if any tracked file contains a secret (private keys,
+API tokens, credential literals), Apple signing material (`.p8`/`.p12`/
+profiles, App Store Connect key ids) or personal data (e-mail addresses,
+IPs, phone numbers, home directories). Test fixtures go in
+`.releasescan-allow`; real values go in the git-ignored `.release.env`
+(see `.release.env.example`). `Tests/scan-release.test.sh` covers the
+scanner.
+
+One-time setup on the release machine: copy `.release.env.example` to
+`.release.env` and fill in the App Store Connect key, then run
 `.build/artifacts/sparkle/Sparkle/bin/generate_keys` once. It stores the
 private EdDSA key in your login Keychain and prints the public key that
 lives in `Resources/Info.plist` under `SUPublicEDKey`. Updates signed with
