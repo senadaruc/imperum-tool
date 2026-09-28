@@ -101,7 +101,9 @@ cursor is read through Accessibility (the same permission the double-tap
 already has); in apps that don't report it (some Electron and web views)
 the bubble attaches to the field itself, and with no text field focused, or
 from the menu bar, you get the centred panel as before. Settings › Clipboard
-› "Open at the text cursor" turns the bubble off.
+› "Show the copy stack as" switches between the bubble and the centred
+popup, and "Show the search field" hides the "Type to search…" row in
+both, leaving the category chips and the keys.
 
 ### Terminal picker (`copystack`)
 

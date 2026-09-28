@@ -87,9 +87,16 @@ content size 520 × 380, gap 6, arrow 10 tall × 20 wide, corner radius 12.
 ## Settings
 
 `ClipboardSettings.anchorToCaret` (default true, forward-compatible
-decode). Settings › Clipboard › Capture & trigger: "Open at the text
-cursor", with a caption explaining the fallback. Off → the trigger opens
-the centred panel as before.
+decode). Settings › Clipboard › Capture & trigger: picker "Show the copy
+stack as" with "Bubble at the text cursor" / "Popup centred on screen",
+plus a caption explaining the fallback. Popup → the trigger opens the
+centred panel as before.
+
+`ClipboardSettings.showSearchField` (default true, forward-compatible
+decode). Same section: toggle "Show the search field". Off removes the
+"Type to search…" row from the header of both presentations; the clip
+count moves to the trailing end of the chip row, unbound keys fall
+through to nothing, and the chips, arrow keys and quick picks still work.
 
 ## Testing
 
@@ -97,7 +104,7 @@ the centred panel as before.
   arrow kept out of the corners / neither side fits / off-screen → nil /
   zero-width caret / AX→Cocoa flip / range candidates at start, middle,
   end, unknown length, real selection.
-- `ClipboardSettingsTests`: `anchorToCaret` default and round-trip.
+- `ClipboardSettingsTests`: `anchorToCaret` and `showSearchField` default and round-trip.
 - Manual, signed build: TextEdit caret mid-page → bubble below, arrow on
   the caret; Teams message box at the bottom → bubble above, arrow at the
   field; no text focus (Firefox page) → centred panel.

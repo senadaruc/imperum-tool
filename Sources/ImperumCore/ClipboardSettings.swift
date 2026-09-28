@@ -54,6 +54,9 @@ public struct ClipboardSettings: Codable, Equatable {
     /// focused field (read through Accessibility) instead of centred on
     /// screen. Falls back to centred whenever no caret can be found.
     public var anchorToCaret = true
+    /// Show the "Type to search…" field at the top of the bubble and the
+    /// popup. Off hides the row; the category chips and the key map stay.
+    public var showSearchField = true
 
     public init() {}
 
@@ -65,7 +68,7 @@ public struct ClipboardSettings: Codable, Equatable {
     public var doubleTapWindow: TimeInterval { TimeInterval(doubleTapMs) / 1000 }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, trigger, doubleTapMs, maxStack, retentionDays, categoryLimits, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, excludedHosts, paused, terminalPicker, allowCLI, cmuxSocketPassword, shortcuts, captureScreenshotFiles, anchorToCaret
+        case enabled, trigger, doubleTapMs, maxStack, retentionDays, categoryLimits, clearOnQuit, showBadge, showFavicons, excludedBundleIDs, excludedHosts, paused, terminalPicker, allowCLI, cmuxSocketPassword, shortcuts, captureScreenshotFiles, anchorToCaret, showSearchField
     }
 
     /// Forward-compatible: keys absent from older saved JSON keep their defaults.
@@ -93,6 +96,7 @@ public struct ClipboardSettings: Codable, Equatable {
         s.shortcuts = decodedShortcuts ?? .defaults
         s.captureScreenshotFiles = try c.decodeIfPresent(Bool.self, forKey: .captureScreenshotFiles) ?? s.captureScreenshotFiles
         s.anchorToCaret = try c.decodeIfPresent(Bool.self, forKey: .anchorToCaret) ?? s.anchorToCaret
+        s.showSearchField = try c.decodeIfPresent(Bool.self, forKey: .showSearchField) ?? s.showSearchField
         self = s
     }
 }

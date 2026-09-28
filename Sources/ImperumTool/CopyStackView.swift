@@ -54,25 +54,35 @@ struct CopyStackView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(m.headerFont)
-                TextField("Type to search…", text: queryBinding)
-                    .textFieldStyle(.plain).font(m.headerFont)
-                    .focused($searchFocused)
-                Text("\(model.totalCount) clips").font(.caption).foregroundStyle(.secondary)
+            // With the field hidden there is nothing to type into: keys the
+            // panel doesn't bind fall through to nothing, and the clip
+            // count moves to the trailing end of the chip row.
+            if model.showSearchField {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(m.headerFont)
+                    TextField("Type to search…", text: queryBinding)
+                        .textFieldStyle(.plain).font(m.headerFont)
+                        .focused($searchFocused)
+                    Text("\(model.totalCount) clips").font(.caption).foregroundStyle(.secondary)
+                }
             }
             // Horizontal scroll, no indicator: the eight chips fit at both
             // widths today, and a longer localisation or a new category can
             // never clip them.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(ClipCategory.allCases, id: \.self) { c in
-                        Text(c.title)
-                            .font(.caption).fontWeight(.medium)
-                            .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(Capsule().fill(model.category == c ? Color.primary.opacity(0.18) : Color.primary.opacity(0.07)))
-                            .onTapGesture { model.setCategory(c) }
+            HStack(spacing: 10) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(ClipCategory.allCases, id: \.self) { c in
+                            Text(c.title)
+                                .font(.caption).fontWeight(.medium)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(Capsule().fill(model.category == c ? Color.primary.opacity(0.18) : Color.primary.opacity(0.07)))
+                                .onTapGesture { model.setCategory(c) }
+                        }
                     }
+                }
+                if !model.showSearchField {
+                    Text("\(model.totalCount) clips").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }

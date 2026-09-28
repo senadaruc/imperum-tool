@@ -150,4 +150,14 @@ final class ClipboardSettingsTests: XCTestCase {
         let back = try JSONDecoder().decode(ClipboardSettings.self, from: JSONEncoder().encode(s))
         XCTAssertFalse(back.anchorToCaret)
     }
+
+    func testShowSearchFieldDefaultsOnAndRoundTrips() throws {
+        XCTAssertTrue(ClipboardSettings().showSearchField)
+        let absent = try JSONDecoder().decode(ClipboardSettings.self, from: #"{"maxStack":99}"#.data(using: .utf8)!)
+        XCTAssertTrue(absent.showSearchField)
+        var s = ClipboardSettings()
+        s.showSearchField = false
+        let back = try JSONDecoder().decode(ClipboardSettings.self, from: JSONEncoder().encode(s))
+        XCTAssertFalse(back.showSearchField)
+    }
 }
