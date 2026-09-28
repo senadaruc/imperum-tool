@@ -101,7 +101,10 @@ let package = Package(
             linkerSettings: [
                 // build.sh copies Sparkle.framework into Contents/Frameworks;
                 // SwiftPM alone leaves the binary with no rpath that reaches it.
-                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
+                // The second entry lets the bare binary under .build/ find the
+                // framework SwiftPM places beside it.
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
+                              "-Xlinker", "-rpath", "-Xlinker", "@executable_path"]),
             ]
         ),
         .executableTarget(
@@ -119,11 +122,11 @@ let package = Package(
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release 2>&1 | tail -3
 ls .build/release/Sparkle.framework/Versions/B/
-otool -l .build/release/ImperumTool | grep -A2 LC_RPATH | grep Frameworks
+otool -l .build/release/ImperumTool | grep -A2 LC_RPATH | grep executable_path
 ls .build/artifacts/sparkle/Sparkle/bin/
 ```
 
-Expected: `Build complete!`; the framework dir lists `Autoupdate Updater.app XPCServices Sparkle …`; the rpath line prints `path @executable_path/../Frameworks`; the bin listing includes `generate_appcast` and `generate_keys`.
+Expected: `Build complete!`; the framework dir lists `Autoupdate Updater.app XPCServices Sparkle …`; two rpath lines, `path @executable_path/../Frameworks` and `path @executable_path`; the bin listing includes `generate_appcast` and `generate_keys`.
 
 - [ ] **Step 3: Run the tests so the dependency provably breaks nothing**
 
@@ -263,7 +266,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep
 (.build/debug/ImperumTool & sleep 4; pkill -x ImperumTool) 2>&1 | grep -i -E 'sparkle|exception|crash' || echo "debug binary ran without Sparkle errors"
 ```
 
-Expected: `Build complete!` and `debug binary ran without Sparkle errors`. (Sparkle's framework is found via the build dir at debug time because SwiftPM places it beside the binary and `@executable_path/../Frameworks` is absent; if the binary fails to load with `Library not loaded: @rpath/Sparkle.framework`, add a second rpath `@executable_path` to the `unsafeFlags` list in Task 2 and rebuild.)
+Expected: `Build complete!` and `debug binary ran without Sparkle errors`. The bare binary finds the framework SwiftPM placed beside it through the `@executable_path` rpath from Task 2.
 
 - [ ] **Step 5: Commit**
 
