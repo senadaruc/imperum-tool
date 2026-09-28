@@ -40,14 +40,14 @@
 **Interfaces:**
 - Produces: remote `origin` → `https://github.com/senadaruc/imperum-tool.git`; branch `feat/sparkle-autoupdate` pushed.
 
-- [ ] **Step 1: Branch**
+- [x] **Step 1: Branch**
 
 ```bash
 cd /Users/deepdark/WSMonitor
 git switch -c feat/sparkle-autoupdate
 ```
 
-- [ ] **Step 2: Secret scan before anything goes public**
+- [x] **Step 2: Secret scan before anything goes public**
 
 ```bash
 git grep -n -i -E 'BEGIN (RSA|EC|OPENSSH|PRIVATE)|AuthKey_|\.p8|password *= *"[^"]+"|gho_|ghp_|sk-[A-Za-z0-9]{20}' -- . ':!docs/superpowers/plans' | grep -v -E 'cmuxSocketPassword|KEY="\$HOME' || echo "no secrets"
@@ -55,7 +55,7 @@ git grep -n -i -E 'BEGIN (RSA|EC|OPENSSH|PRIVATE)|AuthKey_|\.p8|password *= *"[^
 
 Expected: `no secrets`. The notarize scripts reference a key **path** under `$HOME/.secrets`, the key ID and the ASC issuer UUID; none of those is secret. If anything else prints, stop and remove it before Step 3.
 
-- [ ] **Step 3: Create the repo and push**
+- [x] **Step 3: Create the repo and push**
 
 ```bash
 gh repo create senadaruc/imperum-tool --public --description "Imperum Tool: WindowServer monitor, tap gestures and the Copy Stack clipboard for macOS" --source=. --remote=origin
@@ -75,7 +75,7 @@ Expected: `gh repo view senadaruc/imperum-tool --json visibility --jq .visibilit
 **Interfaces:**
 - Produces: `import Sparkle` compiles in the `ImperumTool` target; `.build/release/Sparkle.framework` exists after a release build; the tools at `.build/artifacts/sparkle/Sparkle/bin/{generate_keys,generate_appcast}`.
 
-- [ ] **Step 1: Edit Package.swift**
+- [x] **Step 1: Edit Package.swift**
 
 Replace the whole file with:
 
@@ -117,7 +117,7 @@ let package = Package(
 )
 ```
 
-- [ ] **Step 2: Resolve and build**
+- [x] **Step 2: Resolve and build**
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release 2>&1 | tail -3
@@ -128,7 +128,7 @@ ls .build/artifacts/sparkle/Sparkle/bin/
 
 Expected: `Build complete!`; the framework dir lists `Autoupdate Updater.app XPCServices Sparkle …`; two rpath lines, `path @executable_path/../Frameworks` and `path @executable_path`; the bin listing includes `generate_appcast` and `generate_keys`.
 
-- [ ] **Step 3: Run the tests so the dependency provably breaks nothing**
+- [x] **Step 3: Run the tests so the dependency provably breaks nothing**
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test 2>&1 | grep -E 'Executed .* tests' | tail -1
@@ -136,7 +136,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test 2>&1 | grep 
 
 Expected: `Executed 265 tests, with 0 failures`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add Package.swift Package.resolved
@@ -153,7 +153,7 @@ git commit -m "build: link Sparkle 2 into ImperumTool with a Frameworks rpath"
 **Interfaces:**
 - Produces: plist keys `SUFeedURL`, `SUPublicEDKey`, `SUEnableAutomaticChecks`. Task 5's build guard greps for the literal `REPLACE_WITH_PUBLIC_ED_KEY`.
 
-- [ ] **Step 1: Generate (or print) the signing key**
+- [x] **Step 1: Generate (or print) the signing key**
 
 ```bash
 .build/artifacts/sparkle/Sparkle/bin/generate_keys
@@ -163,7 +163,7 @@ Expected: either a new key is created and its public part printed, or the existi
 
 If the run is unattended and the Keychain prompt cannot be answered, stop this task, leave the placeholder in place, and report that the user must run the command once.
 
-- [ ] **Step 2: Add the three keys**
+- [x] **Step 2: Add the three keys**
 
 Insert before the closing `</dict>` of `Resources/Info.plist`, with the real key pasted in:
 
@@ -176,7 +176,7 @@ Insert before the closing `</dict>` of `Resources/Info.plist`, with the real key
 	<true/>
 ```
 
-- [ ] **Step 3: Validate**
+- [x] **Step 3: Validate**
 
 ```bash
 plutil -lint Resources/Info.plist
@@ -185,7 +185,7 @@ plutil -lint Resources/Info.plist
 
 Expected: `OK`, the URL, a 44-character base64 key, `true`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add Resources/Info.plist
@@ -204,7 +204,7 @@ git commit -m "feat(update): Sparkle feed URL, public key and automatic checks i
 **Interfaces:**
 - Produces: `@objc func checkForUpdates(_ sender: Any?)` on `AppController`, reachable through the responder chain exactly like the existing `AppController.showSettings`.
 
-- [ ] **Step 1: Updater in AppController**
+- [x] **Step 1: Updater in AppController**
 
 At the top of `AppController.swift` add `import Sparkle` after `import AppKit`. Next to the other stored properties add:
 
@@ -238,7 +238,7 @@ In `applicationDidFinishLaunching` (or the init that builds the menu, whichever 
         _ = updater
 ```
 
-- [ ] **Step 2: Status-item menu**
+- [x] **Step 2: Status-item menu**
 
 In `ClipboardStatusItem.swift`, right before the `Settings…` item is added (the `let s = NSMenuItem(title: "Settings…"` line), insert:
 
@@ -248,7 +248,7 @@ In `ClipboardStatusItem.swift`, right before the `Settings…` item is added (th
 
 No target: nil-targeted items travel the responder chain to the app delegate, the same route `NSApp.sendAction(#selector(AppController.showSettings)…)` already uses in this file's `onSettings` wiring.
 
-- [ ] **Step 3: Settings › About button**
+- [x] **Step 3: Settings › About button**
 
 In `Settings.swift`, inside the `HStack(spacing: 10)` of the About section, after the inner `VStack` that shows the name and version, add:
 
@@ -259,7 +259,7 @@ In `Settings.swift`, inside the `HStack(spacing: 10)` of the About section, afte
                         }
 ```
 
-- [ ] **Step 4: Build and run the non-bundled debug binary (Review Focus 3)**
+- [x] **Step 4: Build and run the non-bundled debug binary (Review Focus 3)**
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep -E 'error|Build complete'
@@ -268,7 +268,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build 2>&1 | grep
 
 Expected: `Build complete!` and `debug binary ran without Sparkle errors`. The bare binary finds the framework SwiftPM placed beside it through the `@executable_path` rpath from Task 2.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Sources/ImperumTool/AppController.swift Sources/ImperumTool/ClipboardStatusItem.swift Sources/ImperumTool/Settings.swift
@@ -286,7 +286,7 @@ git commit -m "feat(update): Sparkle updater with Check for Updates in the app m
 - Consumes: `.build/release/Sparkle.framework` (Task 2), `SUPublicEDKey` placeholder literal (Task 3).
 - Produces: `build/Imperum Tool.app/Contents/Frameworks/Sparkle.framework`, signed; the script fails on the placeholder key.
 
-- [ ] **Step 1: Replace build.sh**
+- [x] **Step 1: Replace build.sh**
 
 ```bash
 #!/bin/bash
@@ -329,7 +329,7 @@ codesign -d --entitlements :- "$APP" | grep -q apple-events || { echo "entitleme
 echo "Built + signed: $APP"
 ```
 
-- [ ] **Step 2: Test the placeholder guard (Review Focus 2)**
+- [x] **Step 2: Test the placeholder guard (Review Focus 2)**
 
 ```bash
 cp Resources/Info.plist /tmp/Info.plist.bak
@@ -341,7 +341,7 @@ git diff --stat Resources/Info.plist
 
 Expected: the placeholder message and `exit=1`; the final diff is empty.
 
-- [ ] **Step 3: Real build and verification**
+- [x] **Step 3: Real build and verification**
 
 ```bash
 ./build.sh 2>&1 | grep -E 'error|Built \+ signed|valid on disk'
@@ -352,7 +352,7 @@ open "build/Imperum Tool.app"; sleep 4; pgrep -x ImperumTool && echo running; pk
 
 Expected: `Built + signed`, `Authority=Developer ID Application: Imperum B.V. (9TZGSR8224)`, the `@rpath/Sparkle.framework/…` line, and `running`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add build.sh
@@ -371,7 +371,7 @@ git commit -m "build: bundle and sign Sparkle.framework; default to the Xcode to
 - Consumes: `build.sh`, `notarize.sh`, `make-dmg.sh`, `.build/artifacts/sparkle/Sparkle/bin/generate_appcast`, `gh`.
 - Produces: a tagged commit `chore(release): X.Y.Z (build N)` and a GitHub Release `vX.Y.Z` with `ImperumTool-X.Y.Z.dmg` and `appcast.xml`.
 
-- [ ] **Step 1: Write release.sh**
+- [x] **Step 1: Write release.sh**
 
 ```bash
 #!/bin/bash
@@ -426,7 +426,7 @@ echo "Released $TAG: https://github.com/$REPO/releases/tag/$TAG"
 
 Then `chmod +x release.sh`.
 
-- [ ] **Step 2: Test the refusals without publishing anything (Review Focus 1 and 4)**
+- [x] **Step 2: Test the refusals without publishing anything (Review Focus 1 and 4)**
 
 ```bash
 ./release.sh 0.3; echo "exit=$?"
@@ -437,7 +437,7 @@ git tag -a v9.9.9 -m test; ./release.sh 9.9.9 2>&1 | head -2; echo "exit=$?"; gi
 
 Expected, in order: usage message and `exit=2` twice; the dirty-tree message and `exit=1`; then `tag v9.9.9 exists; skipping the version bump` followed by the "different version" message and `exit=1`. Nothing was built or pushed.
 
-- [ ] **Step 3: README**
+- [x] **Step 3: README**
 
 Replace the `## Build` block (the four-line code block and nothing else) with:
 
@@ -469,7 +469,7 @@ lives in `Resources/Info.plist` under `SUPublicEDKey`. Updates signed with
 any other key are rejected by every installed copy.
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add release.sh README.md
@@ -486,7 +486,7 @@ git commit -m "build: release.sh publishes a Sparkle-signed GitHub Release; docu
 **Interfaces:**
 - Consumes: everything above.
 
-- [ ] **Step 1: Merge the branch to main so releases come from main**
+- [x] **Step 1: Merge the branch to main so releases come from main**
 
 ```bash
 git switch main
@@ -495,7 +495,7 @@ git merge --no-ff feat/sparkle-autoupdate -m "Merge feat/sparkle-autoupdate"
 git push origin main
 ```
 
-- [ ] **Step 2: Release 0.3.1 and install it**
+- [x] **Step 2: Release 0.3.1 and install it**
 
 ```bash
 ./release.sh 0.3.1
@@ -503,9 +503,9 @@ osascript -e 'tell application "Imperum Tool" to quit'; sleep 2
 /bin/rm -rf "/Applications/Imperum Tool.app" && cp -R "build/Imperum Tool.app" /Applications/ && open "/Applications/Imperum Tool.app"
 ```
 
-Expected: `Released v0.3.1: …`; the release page lists `ImperumTool-0.3.1.dmg` and `appcast.xml`; `curl -sL https://github.com/senadaruc/imperum-tool/releases/latest/download/appcast.xml | grep sparkle:version` prints `sparkle:version="4"`.
+Expected: `Released v0.3.1: …`; the release page lists `ImperumTool-0.3.1.dmg` and `appcast.xml`; `curl -sL https://github.com/senadaruc/imperum-tool/releases/latest/download/appcast.xml | grep sparkle:version` prints `<sparkle:version>4</sparkle:version>` (generate_appcast writes the version as an element).
 
-- [ ] **Step 3: Pre-release 0.3.2 and confirm it is invisible (Review Focus 5)**
+- [x] **Step 3: Pre-release 0.3.2 and confirm it is invisible (Review Focus 5)**
 
 ```bash
 ./release.sh 0.3.2 --pre
@@ -514,7 +514,7 @@ curl -sL https://github.com/senadaruc/imperum-tool/releases/latest/download/appc
 
 Expected: still `sparkle:version="4"`. In the running app choose "Check for Updates…" from the menu-bar clipboard menu: Sparkle reports "You're up to date!".
 
-- [ ] **Step 4: Promote and confirm the update installs**
+- [x] **Step 4: Promote and confirm the update installs**
 
 ```bash
 gh release edit v0.3.2 --repo senadaruc/imperum-tool --prerelease=false --latest
@@ -529,7 +529,7 @@ sleep 20; /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "/Appli
 
 Expected: `0.3.2` and `running`.
 
-- [ ] **Step 5: Record the outcome**
+- [x] **Step 5: Record the outcome**
 
 Tick the steps in this plan and commit it:
 
