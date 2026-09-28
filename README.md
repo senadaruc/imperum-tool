@@ -172,6 +172,25 @@ permission-denied on it); GPU util/mem via `IOAccelerator` (IOKit).
     cp -R "build/Imperum Tool.app" /Applications/
     open "/Applications/Imperum Tool.app"
 
+`build.sh` uses the Xcode toolchain (`DEVELOPER_DIR`), since the bare
+Command Line Tools cannot compile the SwiftUI macros.
+
+### Release and auto-update
+
+The app updates itself with [Sparkle](https://sparkle-project.org) from
+this repo's GitHub Releases: it checks daily and from "Check for Updates…"
+in the app menu, the clipboard menu-bar menu and Settings › About, then
+offers "Install and Relaunch". Pre-releases are never offered.
+
+    ./release.sh 0.3.1         # bump, tag, build, notarize, DMG, signed appcast, GitHub Release
+    ./release.sh 0.3.2 --pre   # same, marked pre-release (kept off the update feed)
+
+One-time setup on the release machine: run
+`.build/artifacts/sparkle/Sparkle/bin/generate_keys` once. It stores the
+private EdDSA key in your login Keychain and prints the public key that
+lives in `Resources/Info.plist` under `SUPublicEDKey`. Updates signed with
+any other key are rejected by every installed copy.
+
 It's a regular app: **Dock icon** (click → reopens window), **menu-bar gauge**,
 and a window. Closing the window doesn't quit it (background monitor). Quit
 with ⌘Q or the Dock menu. Add to Login Items to keep it always-on.

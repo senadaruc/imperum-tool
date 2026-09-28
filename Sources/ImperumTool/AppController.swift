@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Sparkle
 import ImperumCore
 
 final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
@@ -15,6 +16,11 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
     private lazy var tapGestures = TapGestureController(store: tapStore)
     private let clipboardSettings = ClipboardSettingsStore()
     private lazy var clipboard = ClipboardController(settings: clipboardSettings)
+    /// Sparkle. Started only when running as a bundle: the debug binary
+    /// under .build/ is not one, and Sparkle throws on start there.
+    private lazy var updater = SPUStandardUpdaterController(
+        startingUpdater: Bundle.main.bundleURL.pathExtension == "app",
+        updaterDelegate: nil, userDriverDelegate: nil)
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
     private var timer: Timer?
@@ -31,6 +37,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         _ = volumeAutoMountBlocker   // force the DiskArbitration session to start now, not on first Settings open
         _ = tapGestures              // likewise: the motion sensor must run whether or not Settings is ever opened
         _ = clipboard                // pasteboard watcher + ⌘V tap must run whether or not Settings is ever opened
+        _ = updater                  // Sparkle's scheduled check must start whether or not a menu is ever opened
         buildMainMenu()
         statusItem.button?.action = #selector(toggleWindow)
         statusItem.button?.target = self
@@ -80,6 +87,7 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
         let appMenu = NSMenu()
         appItem.submenu = appMenu
         appMenu.addItem(withTitle: "About Imperum Tool", action: #selector(showAbout), keyEquivalent: "")
+        appMenu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         let settings = appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
@@ -102,6 +110,8 @@ final class AppController: NSObject, NSWindowDelegate, NSApplicationDelegate {
                 attributes: [.font: NSFont.systemFont(ofSize: 11)])
         ])
     }
+
+    @objc func checkForUpdates(_ sender: Any?) { updater.checkForUpdates(sender) }
 
     @objc func showSettings() {
         if settingsWindow == nil {

@@ -60,6 +60,9 @@ final class ClipboardStatusItem: NSObject, NSMenuDelegate {
         pauseItem.target = self
         m.addItem(pauseItem)
         m.addItem(.separator())
+        // No target: nil-targeted items travel the responder chain to the app
+        // delegate, the same route openSettings takes below.
+        m.addItem(NSMenuItem(title: "Check for Updates…", action: #selector(AppController.checkForUpdates(_:)), keyEquivalent: ""))
         let s = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","); s.target = self
         m.addItem(s)
         m.addItem(NSMenuItem(title: "Quit Imperum Tool", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))

@@ -191,6 +191,10 @@ struct GeneralSettingsTab: View {
                             Text("Imperum Tool").font(.headline)
                             Text("Version \(appVersionString())").font(.caption).foregroundStyle(.secondary)
                         }
+                        Spacer()
+                        Button("Check for Updates…") {
+                            NSApp.sendAction(#selector(AppController.checkForUpdates(_:)), to: nil, from: nil)
+                        }
                     }
                     Text("Finds which app is driving WindowServer CPU / RAM / GPU spikes — sudoless detection, live correlation, a pause-and-test causation check, and (optionally) powermetrics Energy Impact.")
                         .font(.caption).foregroundStyle(.secondary)
