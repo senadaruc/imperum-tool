@@ -11,10 +11,20 @@ private final class KeyablePanel: NSPanel {
 /// Floating, non-activating panel: appears above the current app without
 /// stealing activation, becomes key so typing goes to the search field.
 final class CopyStackPanel {
-    enum Anchor { case mouseScreen, mainScreen }
+    /// `.caret` is the caret's rect in Cocoa screen coordinates (see
+    /// `CaretLocator`); the panel opens as a compact bubble pointing at it,
+    /// or centred on the mouse screen when that can't be placed.
+    enum Anchor { case mouseScreen, mainScreen, caret(CGRect) }
+
+    static let fullSize = NSSize(width: 640, height: 520)
+    static let compactSize = NSSize(width: 520, height: 380)
+    static let arrowHeight: CGFloat = 10
+    static let compactCornerRadius: CGFloat = 12
+    private static let fullCornerRadius: CGFloat = 14
 
     private let model: CopyStackModel
     private var panel: KeyablePanel?
+    private var effect: NSVisualEffectView?
     private var keyMonitor: Any?
     private var notificationObservers: [Any] = []
     private var workspaceObservers: [Any] = []
@@ -27,14 +37,35 @@ final class CopyStackPanel {
     func show(anchor: Anchor) {
         let p = panel ?? makePanel()
         model.reset()
-        let screen: NSScreen = {
-            if anchor == .mouseScreen, let s = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) { return s }
-            return NSScreen.main ?? NSScreen.screens[0]
-        }()
-        let f = screen.visibleFrame
-        let size = NSSize(width: 640, height: 520)
-        p.setFrame(NSRect(x: f.midX - size.width / 2, y: f.midY - size.height / 2, width: size.width, height: size.height), display: false)
+
+        let frame: NSRect
+        if case .caret(let caret) = anchor,
+           let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: caret.midX, y: caret.midY)) }),
+           let placement = PanelPlacement.place(caret: caret, panelSize: Self.compactSize, screen: screen.visibleFrame,
+                                                arrowHeight: Self.arrowHeight, cornerRadius: Self.compactCornerRadius) {
+            frame = placement.frame
+            model.layout = .compact(arrowEdge: placement.arrowEdge, arrowX: placement.arrowX)
+            applyBubbleStyle(placement)
+        } else {
+            let screen: NSScreen = {
+                if case .mainScreen = anchor { return NSScreen.main ?? NSScreen.screens[0] }
+                return NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? NSScreen.main ?? NSScreen.screens[0]
+            }()
+            let f = screen.visibleFrame
+            let size = Self.fullSize
+            frame = NSRect(x: f.midX - size.width / 2, y: f.midY - size.height / 2, width: size.width, height: size.height)
+            model.layout = .full
+            applyFullStyle()
+        }
+
+        p.setFrame(frame, display: false)
+        p.alphaValue = 0
         p.makeKeyAndOrderFront(nil)
+        p.invalidateShadow()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.12
+            p.animator().alphaValue = 1
+        }
         installMonitors()
     }
 
@@ -44,7 +75,7 @@ final class CopyStackPanel {
     }
 
     private func makePanel() -> KeyablePanel {
-        let p = KeyablePanel(contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
+        let p = KeyablePanel(contentRect: NSRect(origin: .zero, size: Self.fullSize),
                              styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: false)
         p.level = .floating
         p.isFloatingPanel = true
@@ -56,11 +87,9 @@ final class CopyStackPanel {
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
 
         let effect = NSVisualEffectView()
-        effect.material = .hudWindow
         effect.blendingMode = .behindWindow
         effect.state = .active
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = 14
         effect.layer?.masksToBounds = true
         let host = NSHostingView(rootView: CopyStackView(model: model))
         host.translatesAutoresizingMaskIntoConstraints = false
@@ -70,8 +99,58 @@ final class CopyStackPanel {
             host.topAnchor.constraint(equalTo: effect.topAnchor), host.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
         ])
         p.contentView = effect
+        self.effect = effect
         panel = p
         return p
+    }
+
+    // MARK: Looks
+
+    /// The centred window: HUD material, plain rounded corners.
+    private func applyFullStyle() {
+        guard let effect else { return }
+        effect.material = .hudWindow
+        effect.maskImage = nil
+        effect.layer?.cornerRadius = Self.fullCornerRadius
+    }
+
+    /// The caret bubble: the system popover material, masked to a rounded
+    /// rect with a small arrow on the edge facing the caret. The window
+    /// shadow follows the mask, so the arrow gets one too.
+    private func applyBubbleStyle(_ placement: PanelPlacement) {
+        guard let effect else { return }
+        effect.material = .popover
+        effect.layer?.cornerRadius = 0
+        let size = placement.frame.size
+        effect.maskImage = NSImage(size: size, flipped: false) { rect in
+            NSColor.black.setFill()
+            Self.bubblePath(in: rect, arrowEdge: placement.arrowEdge, arrowX: placement.arrowX).fill()
+            return true
+        }
+    }
+
+    /// Rounded body plus an isosceles arrow, in unflipped (y-up) coordinates.
+    static func bubblePath(in rect: NSRect, arrowEdge: PanelPlacement.ArrowEdge, arrowX: CGFloat) -> NSBezierPath {
+        let half = PanelPlacement.arrowWidth / 2
+        let body: NSRect
+        let base: CGFloat, tip: CGFloat
+        switch arrowEdge {
+        case .top:
+            body = NSRect(x: 0, y: 0, width: rect.width, height: rect.height - arrowHeight)
+            base = body.maxY; tip = rect.maxY
+        case .bottom:
+            body = NSRect(x: 0, y: arrowHeight, width: rect.width, height: rect.height - arrowHeight)
+            base = body.minY; tip = rect.minY
+        }
+        let path = NSBezierPath(roundedRect: body, xRadius: compactCornerRadius, yRadius: compactCornerRadius)
+        let arrow = NSBezierPath()
+        arrow.move(to: NSPoint(x: arrowX - half, y: base))
+        arrow.line(to: NSPoint(x: arrowX, y: tip))
+        arrow.line(to: NSPoint(x: arrowX + half, y: base))
+        arrow.close()
+        path.append(arrow)
+        path.windingRule = .nonZero
+        return path
     }
 
     // MARK: Keys and dismissal

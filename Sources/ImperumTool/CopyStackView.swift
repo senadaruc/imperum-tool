@@ -2,6 +2,26 @@
 import SwiftUI
 import ImperumCore
 
+/// Spacing and type for the two presentations (see `PanelLayout`). The
+/// compact set is what makes the caret bubble read as a small system
+/// popover rather than a shrunken window.
+private struct LayoutMetrics {
+    let size: CGSize
+    let hPad: CGFloat
+    let headerTop: CGFloat
+    let headerBottom: CGFloat
+    let headerFont: Font
+    let rowLeading: CGFloat
+    let rowTitleFont: Font
+    let rowVPad: CGFloat
+    let footerFont: Font
+
+    static let full = LayoutMetrics(size: CopyStackPanel.fullSize, hPad: 16, headerTop: 14, headerBottom: 10, headerFont: .title3,
+                                    rowLeading: 32, rowTitleFont: .body, rowVPad: 8, footerFont: .caption)
+    static let compact = LayoutMetrics(size: CopyStackPanel.compactSize, hPad: 12, headerTop: 10, headerBottom: 8, headerFont: .body,
+                                       rowLeading: 28, rowTitleFont: .callout, rowVPad: 6, footerFont: .caption2)
+}
+
 struct CopyStackView: View {
     @ObservedObject var model: CopyStackModel
     @FocusState private var searchFocused: Bool
@@ -10,15 +30,22 @@ struct CopyStackView: View {
         Binding(get: { model.query }, set: { model.setQuery($0) })
     }
 
+    private var m: LayoutMetrics { model.layout.isCompact ? .compact : .full }
+
     var body: some View {
+        let arrow = CopyStackPanel.arrowHeight
         VStack(spacing: 0) {
+            // Nothing draws under the arrow strip: the mask clips it to the
+            // triangle, so content there would look torn off.
+            if case .compact(.top, _) = model.layout { Color.clear.frame(height: arrow) }
             header
             Divider().opacity(0.4)
             list
             Divider().opacity(0.4)
             footer
+            if case .compact(.bottom, _) = model.layout { Color.clear.frame(height: arrow) }
         }
-        .frame(width: 640, height: 520)
+        .frame(width: m.size.width, height: m.size.height + (model.layout.isCompact ? arrow : 0))
         .onAppear { searchFocused = true }
         .onChange(of: model.focusGeneration) { _, _ in searchFocused = true }
     }
@@ -26,26 +53,40 @@ struct CopyStackView: View {
     // MARK: Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.title3)
-                TextField("Type to search…", text: queryBinding)
-                    .textFieldStyle(.plain).font(.title3)
-                    .focused($searchFocused)
-                Text("\(model.totalCount) clips").font(.caption).foregroundStyle(.secondary)
-            }
-            HStack(spacing: 6) {
-                ForEach(ClipCategory.allCases, id: \.self) { c in
-                    Text(c.title)
-                        .font(.caption).fontWeight(.medium)
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(Capsule().fill(model.category == c ? Color.primary.opacity(0.18) : Color.primary.opacity(0.07)))
-                        .onTapGesture { model.setCategory(c) }
+        VStack(alignment: .leading, spacing: 8) {
+            // With the field hidden there is nothing to type into: keys the
+            // panel doesn't bind fall through to nothing, and the clip
+            // count moves to the trailing end of the chip row.
+            if model.showSearchField {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(m.headerFont)
+                    TextField("Type to search…", text: queryBinding)
+                        .textFieldStyle(.plain).font(m.headerFont)
+                        .focused($searchFocused)
+                    Text("\(model.totalCount) clips").font(.caption).foregroundStyle(.secondary)
                 }
-                Spacer()
+            }
+            // Horizontal scroll, no indicator: the eight chips fit at both
+            // widths today, and a longer localisation or a new category can
+            // never clip them.
+            HStack(spacing: 10) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(ClipCategory.allCases, id: \.self) { c in
+                            Text(c.title)
+                                .font(.caption).fontWeight(.medium)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(Capsule().fill(model.category == c ? Color.primary.opacity(0.18) : Color.primary.opacity(0.07)))
+                                .onTapGesture { model.setCategory(c) }
+                        }
+                    }
+                }
+                if !model.showSearchField {
+                    Text("\(model.totalCount) clips").font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
-        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+        .padding(.horizontal, m.hPad).padding(.top, m.headerTop).padding(.bottom, m.headerBottom)
     }
 
     // MARK: List
@@ -60,13 +101,14 @@ struct CopyStackView: View {
                     }
                     ForEach(model.sections, id: \.title) { section in
                         Text(section.title).font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
-                            .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 4)
+                            .padding(.horizontal, m.hPad).padding(.top, 10).padding(.bottom, 4)
                         ForEach(section.clips) { clip in
                             let index = model.indexByID[clip.id] ?? 0
                             ClipRow(clip: clip, index: index, selected: model.selectedID == clip.id,
                                     quickPickPrefix: PanelShortcuts.modifierGlyphs(model.shortcuts.quickPickModifiers),
                                     thumbnail: model.thumbnail(for: clip), favicon: model.favicon(for: clip),
-                                    richPreview: model.richPreview(for: clip))
+                                    richPreview: model.richPreview(for: clip),
+                                    leading: m.rowLeading, titleFont: m.rowTitleFont, vPad: m.rowVPad)
                                 .id(clip.id)
                                 .onTapGesture { model.onPaste?(clip) }
                         }
@@ -91,8 +133,8 @@ struct CopyStackView: View {
             Spacer()
             hint(s.combo(for: .close).display, "Close")
         }
-        .font(.caption).foregroundStyle(.secondary)
-        .padding(.horizontal, 16).padding(.vertical, 10)
+        .font(m.footerFont).foregroundStyle(.secondary)
+        .padding(.horizontal, m.hPad).padding(.vertical, model.layout.isCompact ? 8 : 10)
     }
 
     private func hint(_ keys: String, _ label: String) -> some View {
@@ -113,12 +155,15 @@ private struct ClipRow: View {
     let thumbnail: NSImage?
     let favicon: NSImage?
     let richPreview: NSImage?
+    let leading: CGFloat
+    let titleFont: Font
+    let vPad: CGFloat
 
     var body: some View {
         HStack(spacing: 12) {
-            leading.frame(width: 32, height: 32)
+            leadingView.frame(width: leading, height: leading)
             VStack(alignment: .leading, spacing: 2) {
-                Text(clip.title.isEmpty ? " " : clip.title).lineLimit(1).font(.body)
+                Text(clip.title.isEmpty ? " " : clip.title).lineLimit(1).font(titleFont)
                 Text("\(clip.sourceAppName) · \(clip.capturedAt, format: .dateTime.hour().minute())")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -132,17 +177,17 @@ private struct ClipRow: View {
             if clip.isPinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary) }
             if index < 9 { Text("\(quickPickPrefix)\(index + 1)").font(.caption.monospaced()).foregroundStyle(.secondary) }
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
+        .padding(.horizontal, 12).padding(.vertical, vPad)
         .background(RoundedRectangle(cornerRadius: 10).fill(selected ? Color.primary.opacity(0.16) : .clear))
         .padding(.horizontal, 10)
         .contentShape(Rectangle())
     }
 
-    @ViewBuilder private var leading: some View {
+    @ViewBuilder private var leadingView: some View {
         switch clip.kind {
         case .image, .screenshot:
             if let t = thumbnail {
-                Image(nsImage: t).resizable().aspectRatio(contentMode: .fill).frame(width: 32, height: 32)
+                Image(nsImage: t).resizable().aspectRatio(contentMode: .fill).frame(width: leading, height: leading)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             } else { glyph("photo") }
         // Legacy: round 10 removed the Colors category. A .color clip from

@@ -94,6 +94,17 @@ Verified against Safari, Google Chrome, Firefox and Brave.
 The double-tap needs Accessibility (to hold a ⌘V for ~300 ms and decide if a
 second tap follows); the ⌘⇧V hotkey does not.
 
+When you double-tap ⌘V inside a text field, the stack opens as a compact
+bubble right at the text cursor, above or below it depending on the room,
+with an arrow pointing at the insertion point, like the emoji picker. The
+cursor is read through Accessibility (the same permission the double-tap
+already has); in apps that don't report it (some Electron and web views)
+the bubble attaches to the field itself, and with no text field focused, or
+from the menu bar, you get the centred panel as before. Settings › Clipboard
+› "Show the copy stack as" switches between the bubble and the centred
+popup, and "Show the search field" hides the "Type to search…" row in
+both, leaving the category chips and the keys.
+
 ### Terminal picker (`copystack`)
 
 Turn on "Use a terminal picker when a terminal app is in front" (Settings ›

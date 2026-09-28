@@ -3,12 +3,23 @@ import AppKit
 import Combine
 import ImperumCore
 
+/// How the panel is presented: the full centred window, or the compact
+/// bubble anchored to a text caret with an arrow on one edge.
+enum PanelLayout: Equatable {
+    case full
+    case compact(arrowEdge: PanelPlacement.ArrowEdge, arrowX: CGFloat)
+
+    var isCompact: Bool { if case .compact = self { return true } else { return false } }
+}
+
 /// Panel view model: `PanelState` + the store's clips, thumbnails, favicons,
 /// and the key commands. `onPaste` / `onClose` are wired by the controller.
 final class CopyStackModel: ObservableObject {
     enum KeyCommand { case up, down, left, right, enter, escape, digit(Int), pin, delete }
 
     @Published private(set) var state = PanelState()
+    /// Set by `CopyStackPanel` right before it orders the window front.
+    @Published var layout: PanelLayout = .full
     @Published private(set) var sections: [ClipSection] = []
     @Published private(set) var flat: [Clip] = []
     @Published private(set) var indexByID: [UUID: Int] = [:]
@@ -44,7 +55,7 @@ final class CopyStackModel: ObservableObject {
          faviconCacheDir: @escaping () -> URL?) {
         self.store = store; self.settings = settings; self.blobLookup = blobLookup; self.faviconCacheDir = faviconCacheDir
         store.$clips.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.recompute() }.store(in: &bag)
-        settings.$settings.map(\.shortcuts).removeDuplicates().receive(on: DispatchQueue.main)
+        settings.$settings.map { ($0.shortcuts, $0.showSearchField) }.removeDuplicates(by: ==).receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
         favicons.onLoaded = { [weak self] in self?.objectWillChange.send() }
     }
@@ -56,6 +67,8 @@ final class CopyStackModel: ObservableObject {
 
     /// The live key map. Read on every key event and by the footer.
     var shortcuts: PanelShortcuts { settings.settings.shortcuts }
+    /// Whether the header draws the search field (Settings › Clipboard).
+    var showSearchField: Bool { settings.settings.showSearchField }
 
     func reset() { state.reset(); thumbs.removeAll(); richPreviews.removeAll(); focusGeneration += 1; recompute() }
 

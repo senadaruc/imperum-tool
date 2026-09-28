@@ -41,6 +41,19 @@ struct ClipboardSettingsTab: View {
                         }
                     }
                 }
+                Picker("Show the copy stack as", selection: $store.settings.anchorToCaret) {
+                    Text("Bubble at the text cursor").tag(true)
+                    Text("Popup centred on screen").tag(false)
+                }
+                Text(store.settings.anchorToCaret
+                     ? "A compact bubble opens at the insertion point of the field you are typing in (read via Accessibility). Falls back to the centred popup when there is no text cursor."
+                     : "The full popup opens centred on the screen, wherever the text cursor is.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Show the search field", isOn: $store.settings.showSearchField)
+                Text(store.settings.showSearchField
+                     ? "The bubble and the popup open with a \"Type to search…\" field; typing filters the stack."
+                     : "The search field is hidden. Filter by category with the chips or the arrow keys.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Stepper("Maximum stack size: \(store.settings.maxStack)", value: $store.settings.maxStack, in: 20...2000, step: 10)
                 DisclosureGroup("Limit per category") {
                     ForEach(ClipCategory.allCases.filter { $0 != .all }, id: \.self) { c in
