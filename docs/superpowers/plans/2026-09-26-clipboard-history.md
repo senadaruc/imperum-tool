@@ -325,7 +325,7 @@ final class ClipClassifierTests: XCTestCase {
     }
 
     func testEmails() {
-        XCTAssertEqual(ClipClassifier.classifyText("senad@imperum.io"), .email)
+        XCTAssertEqual(ClipClassifier.classifyText("jane.doe@example.com"), .email)
         XCTAssertEqual(ClipClassifier.classifyText("a@b"), .text)
         XCTAssertEqual(ClipClassifier.classifyText("mail me: a@b.co"), .text)
     }
